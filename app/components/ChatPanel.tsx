@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { RotateCcw, Send, AlertCircle, Terminal, FileEdit } from 'lucide-react';
+import { RotateCcw, Send, AlertCircle, Terminal, FileEdit, ChevronDown, Check, Save, History, X, Trash2, Edit2 } from 'lucide-react';
 import { useAI } from '../lib/ai';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -42,12 +42,37 @@ export default function ChatPanel({
   maxWidth = 600,
   activeDatasource,
 }: ChatPanelProps) {
-  const { user, isConfigured, isLoading: isLoadingSettings } = useAI();
+  const { user, isConfigured, isLoading: isLoadingSettings, settings, updateModel } = useAI();
   const [isResizing, setIsResizing] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [isSavingChat, setIsSavingChat] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isSavingRef = useRef(false); // Ref per evitare loop infiniti
+  const lastSavedMessageCountRef = useRef(0); // Traccia quanti messaggi sono stati salvati
+  const prevIsLoadingRef = useRef(false); // Traccia lo stato precedente di isLoading
+  const lastSavedHashRef = useRef<string>(''); // Hash dell'ultimo stato salvato
+  const unchangedChecksRef = useRef(0); // Contatore di check senza modifiche
+
+  // Modelli Claude disponibili
+  const models = [
+    { id: 'claude-opus-4-5-20251101', label: 'Opus 4.5', description: 'Most capable' },
+    { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5', description: 'Balanced' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', description: 'Fastest' },
+  ];
+
+  const selectedModelLabel = models.find(m => m.id === settings.model)?.label || 'Select model';
 
   // AI SDK useChat hook - nuova API v6
   // L'API key e il model sono ora gestiti server-side (Vault)
@@ -80,12 +105,33 @@ export default function ChatPanel({
     scrollToBottom();
   }, [messages]);
 
+  // Auto-resize textarea in base al contenuto
+  const autoResizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto'; // Reset height
+      const newHeight = Math.min(textarea.scrollHeight, 120); // Max 120px
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, []);
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim() && canChat && !isLoading) {
       sendMessage({ text: inputValue.trim() });
       setInputValue('');
+      // Reset textarea height
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = '36px';
+        }
+      }, 0);
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+    autoResizeTextarea();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -95,9 +141,252 @@ export default function ChatPanel({
     }
   };
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setMessages([]);
+    setCurrentChatId(null); // Reset chat ID per iniziare una nuova chat
+    lastSavedMessageCountRef.current = 0; // Reset contatore messaggi salvati
+    lastSavedHashRef.current = ''; // Reset hash
+    unchangedChecksRef.current = 0; // Reset contatore check
+  }, [setMessages]);
+
+  // Cambia modello
+  const handleModelChange = async (modelId: string) => {
+    setShowModelDropdown(false);
+    await updateModel(modelId);
   };
+
+  // Calcola hash semplice dei messaggi per confronto
+  const getMessagesHash = useCallback((msgs: any[]) => {
+    return JSON.stringify(msgs.map(m => ({
+      role: m.role,
+      content: m.content,
+      id: m.id,
+    })));
+  }, []);
+
+  // Carica cronologia chat
+  const loadChatHistory = useCallback(async () => {
+    if (!user || isLoadingHistory) return;
+    
+    setIsLoadingHistory(true);
+    try {
+      const response = await fetch('/api/chats');
+      if (response.ok) {
+        const { chats } = await response.json();
+        setChatHistory(chats || []);
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error loading chat history:', error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [user]); // Rimosso isLoadingHistory dalle dipendenze
+
+  // Carica una chat specifica
+  const loadChat = useCallback(async (chatId: string) => {
+    try {
+      const response = await fetch(`/api/chats/${chatId}`);
+      if (response.ok) {
+        const { chat } = await response.json();
+        setMessages(chat.messages || []);
+        setCurrentChatId(chat.id);
+        lastSavedMessageCountRef.current = chat.messages?.length || 0;
+        lastSavedHashRef.current = getMessagesHash(chat.messages || []);
+        unchangedChecksRef.current = 0;
+        // Non chiudere il pannello - lascialo aperto
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error loading chat:', error);
+    }
+  }, [setMessages, getMessagesHash]);
+
+  // Elimina una chat
+  const deleteChat = useCallback(async (chatId: string) => {
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        // Rimuovi dalla lista
+        setChatHistory(prev => prev.filter(c => c.id !== chatId));
+        
+        // Se era la chat corrente, resetta
+        if (chatId === currentChatId) {
+          handleReset();
+        }
+        
+        setDeletingChatId(null);
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error deleting chat:', error);
+    }
+  }, [currentChatId, handleReset]);
+
+  // Rinomina una chat
+  const renameChat = useCallback(async (chatId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      
+      if (response.ok) {
+        // Aggiorna nella lista
+        setChatHistory(prev => 
+          prev.map(c => c.id === chatId ? { ...c, title: newTitle.trim() } : c)
+        );
+        setEditingChatId(null);
+        setEditingTitle('');
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error renaming chat:', error);
+    }
+  }, []);
+
+  // Carica cronologia solo la prima volta che si apre il pannello
+  useEffect(() => {
+    if (showHistory && user && chatHistory.length === 0 && !isLoadingHistory) {
+      loadChatHistory();
+    }
+  }, [showHistory, user, chatHistory.length, isLoadingHistory, loadChatHistory]);
+
+  // Salva o aggiorna la chat
+  const saveChat = useCallback(async (messagesToSave: any[]) => {
+    if (!user || messagesToSave.length === 0 || isSavingRef.current) {
+      return;
+    }
+
+    isSavingRef.current = true;
+    setIsSavingChat(true);
+    
+    try {
+      if (!currentChatId) {
+        // Crea nuova chat
+        console.log('[ChatPanel] Creating new chat with', messagesToSave.length, 'messages');
+        const response = await fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: messagesToSave,
+          }),
+        });
+
+        if (response.ok) {
+          const { chat } = await response.json();
+          setCurrentChatId(chat.id);
+          lastSavedMessageCountRef.current = messagesToSave.length;
+          lastSavedHashRef.current = getMessagesHash(messagesToSave);
+          unchangedChecksRef.current = 0; // Reset contatore
+          console.log('[ChatPanel] Chat created:', chat.id);
+          // Ricarica cronologia per includere la nuova chat
+          if (chatHistory.length > 0) {
+            loadChatHistory();
+          }
+        } else {
+          console.error('[ChatPanel] Failed to create chat');
+        }
+      } else {
+        // Aggiorna chat esistente
+        console.log('[ChatPanel] Updating chat', currentChatId, 'with', messagesToSave.length, 'messages');
+        const response = await fetch(`/api/chats/${currentChatId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: messagesToSave,
+          }),
+        });
+
+        if (response.ok) {
+          lastSavedMessageCountRef.current = messagesToSave.length;
+          lastSavedHashRef.current = getMessagesHash(messagesToSave);
+          unchangedChecksRef.current = 0; // Reset contatore
+          // Ricarica cronologia per aggiornare la data
+          if (chatHistory.length > 0) {
+            loadChatHistory();
+          }
+        } else {
+          console.error('[ChatPanel] Failed to update chat');
+        }
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error saving chat:', error);
+    } finally {
+      isSavingRef.current = false;
+      setIsSavingChat(false);
+    }
+  }, [user, currentChatId, getMessagesHash, chatHistory.length, loadChatHistory]);
+
+  // Auto-save immediato quando cambia il numero di messaggi (nuovo messaggio)
+  useEffect(() => {
+    if (messages.length === 0 || !user || !isConfigured) {
+      return;
+    }
+
+    // Salva solo se il numero di messaggi è cambiato (nuovo messaggio aggiunto)
+    if (messages.length !== lastSavedMessageCountRef.current && messages.length > 0) {
+      console.log('[ChatPanel] New message detected, saving...');
+      unchangedChecksRef.current = 0; // Reset contatore per riattivare polling
+      
+      // Aspetta 1 secondo per dare tempo al messaggio di completarsi
+      const timer = setTimeout(() => {
+        saveChat(messages);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, user, isConfigured, saveChat]);
+
+  // Salva quando l'AI finisce di rispondere
+  useEffect(() => {
+    // Se prima stava caricando e ora non più = AI ha finito
+    if (prevIsLoadingRef.current === true && isLoading === false) {
+      if (messages.length > 0 && user && isConfigured) {
+        // Salva immediatamente quando l'AI finisce
+        saveChat(messages);
+      }
+    }
+    
+    // Aggiorna il ref per il prossimo check
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading, messages, user, isConfigured, saveChat]);
+
+  // Sistema di polling intelligente: verifica ogni 2 secondi se c'è da salvare
+  useEffect(() => {
+    if (!user || !isConfigured || messages.length === 0 || !currentChatId) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const currentHash = getMessagesHash(messages);
+      
+      // Se l'hash è diverso dall'ultimo salvato, ci sono modifiche
+      if (currentHash !== lastSavedHashRef.current) {
+        console.log('[ChatPanel] Polling detected unsaved changes, saving...');
+        unchangedChecksRef.current = 0; // Reset contatore
+        saveChat(messages);
+      } else {
+        // Nessuna modifica rilevata
+        unchangedChecksRef.current += 1;
+        
+        // Se per 3 volte consecutive non ci sono modifiche, ferma il polling
+        if (unchangedChecksRef.current >= 3) {
+          console.log('[ChatPanel] All synced, stopping polling checks');
+          clearInterval(interval);
+        }
+      }
+    }, 2000); // Controlla ogni 2 secondi
+
+    return () => clearInterval(interval);
+  }, [messages, user, isConfigured, currentChatId, getMessagesHash, saveChat]);
+
+  // Auto-resize on mount and when value changes
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [inputValue, autoResizeTextarea]);
 
   // Resize handling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -136,13 +425,21 @@ export default function ChatPanel({
   return (
     <div 
       ref={panelRef}
-      className="relative flex flex-col h-full"
+      className="relative flex h-full"
       style={{ 
-        width: `${width}px`,
-        background: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border-subtle)'
+        width: showHistory ? `${width + 264}px` : `${width}px`,
+        transition: 'width 0.2s ease-in-out',
       }}
     >
+      {/* Main Chat Panel */}
+      <div 
+        className="flex flex-col h-full"
+        style={{ 
+          width: `${width}px`,
+          background: 'var(--bg-secondary)',
+          borderLeft: '1px solid var(--border-subtle)'
+        }}
+      >
       {/* Resize handle */}
       <div 
         className={`resize-handle ${isResizing ? 'active' : ''}`}
@@ -247,16 +544,20 @@ export default function ChatPanel({
         <form onSubmit={handleSend}>
           <div className="relative">
             <textarea
+              ref={textareaRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={canChat ? "Ask me to query data, explore schema..." : (!user ? "Sign in to use chat" : "Configure API key in Settings first")}
               disabled={!canChat}
-              className="chat-input w-full px-3 py-2 pr-10 text-sm"
+              className="chat-input w-full px-3 py-2 pr-10 text-xs"
               style={{ 
-                minHeight: '40px', 
-                maxHeight: '100px',
+                minHeight: '36px', 
+                maxHeight: '120px',
+                height: '36px',
                 opacity: canChat ? 1 : 0.5,
+                resize: 'none',
+                overflow: 'auto',
               }}
               rows={1}
             />
@@ -274,13 +575,143 @@ export default function ChatPanel({
             </button>
           </div>
         </form>
-        <div className="flex items-center justify-between mt-1">
-          <p 
-            className="text-xs"
-            style={{ color: 'var(--text-muted)' }}
+        <div className="flex items-center justify-between mt-1 gap-2">
+          {/* History button - left side */}
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            disabled={!canChat}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs transition-colors"
+            style={{ 
+              color: showHistory ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+              opacity: canChat ? 1 : 0.5,
+              cursor: canChat ? 'pointer' : 'not-allowed'
+            }}
+            onMouseEnter={(e) => {
+              if (canChat) {
+                e.currentTarget.style.background = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--accent-primary)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = showHistory ? 'var(--accent-primary)' : 'var(--text-tertiary)';
+            }}
+            title="Chat history"
           >
-            Press Enter to send, Shift+Enter for new line
-          </p>
+            <History size={12} />
+          </button>
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-2">
+          {/* Model selector dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowModelDropdown(!showModelDropdown)}
+              disabled={!canChat}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs transition-colors"
+              style={{ 
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)',
+                fontSize: '10px',
+                opacity: canChat ? 1 : 0.5,
+                cursor: canChat ? 'pointer' : 'not-allowed',
+              }}
+              onMouseEnter={(e) => {
+                if (canChat) {
+                  e.currentTarget.style.borderColor = 'var(--border-default)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!showModelDropdown) {
+                  e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                }
+              }}
+              title={`AI Model: ${settings.model}`}
+            >
+              <span>{selectedModelLabel}</span>
+              <ChevronDown 
+                size={10} 
+                style={{ 
+                  color: 'var(--text-muted)',
+                  transform: showModelDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s'
+                }} 
+              />
+            </button>
+
+            {showModelDropdown && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowModelDropdown(false)}
+                />
+                <div 
+                  className="absolute bottom-full left-0 right-0 mb-1 rounded-lg overflow-hidden z-20 animate-fade-in"
+                  style={{ 
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-default)',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                    minWidth: '150px',
+                  }}
+                >
+                  {models.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => handleModelChange(model.id)}
+                      className="w-full flex items-center justify-between px-2 py-1.5 text-xs transition-colors text-left"
+                      style={{ 
+                        background: settings.model === model.id ? 'var(--bg-hover)' : 'transparent',
+                        color: 'var(--text-primary)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--bg-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (settings.model !== model.id) {
+                          e.currentTarget.style.background = 'transparent';
+                        }
+                      }}
+                    >
+                      <div>
+                        <div>{model.label}</div>
+                        <div className="text-xs" style={{ color: 'var(--text-muted)', fontSize: '9px' }}>
+                          {model.description}
+                        </div>
+                      </div>
+                      {settings.model === model.id && (
+                        <Check size={12} style={{ color: 'var(--accent-primary)' }} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Save indicator */}
+          {messages.length > 0 && user && currentChatId && (
+            <div 
+              className="flex items-center gap-1 px-1 py-0.5"
+              style={{ 
+                color: 'var(--text-muted)',
+              }}
+              title={isSavingChat ? 'Saving...' : 'Saved'}
+            >
+              <Save 
+                size={11} 
+                style={{
+                  opacity: isSavingChat ? 0.5 : 1,
+                  animation: isSavingChat ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                }}
+              />
+              {isSavingChat && (
+                <span style={{ fontSize: '9px' }}>...</span>
+              )}
+            </div>
+          )}
+
+          {/* Reset button */}
           <button
             onClick={handleReset}
             disabled={messages.length === 0}
@@ -300,13 +731,259 @@ export default function ChatPanel({
               e.currentTarget.style.background = 'transparent';
               e.currentTarget.style.color = 'var(--text-tertiary)';
             }}
-            title="Reset chat"
+            title="Reset chat and start new conversation"
           >
             <RotateCcw size={12} />
             reset
           </button>
+          </div>
         </div>
       </div>
+      </div>
+
+      {/* History Panel - Same level as chat */}
+      {showHistory && (
+        <div 
+          className="w-64 flex flex-col h-full"
+          style={{ 
+            background: 'var(--bg-primary)',
+            borderLeft: '1px solid var(--border-subtle)',
+          }}
+        >
+            {/* Header */}
+            <div 
+              className="flex items-center justify-between p-3 border-b"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <h3 
+                className="font-semibold text-sm"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                Chat History
+              </h3>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="p-1 rounded hover:bg-opacity-80 transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Chat List */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {isLoadingHistory ? (
+                <div 
+                  className="text-center py-4 text-xs"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Loading...
+                </div>
+              ) : chatHistory.length === 0 ? (
+                <div 
+                  className="text-center py-4 text-xs"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  No chat history yet
+                </div>
+              ) : (
+                chatHistory.map((chat) => (
+                  <div
+                    key={chat.id}
+                    className="relative mb-1 rounded transition-colors"
+                    style={{
+                      background: chat.id === currentChatId ? 'var(--accent-primary-alpha)' : 'transparent',
+                      border: `1px solid ${chat.id === currentChatId ? 'var(--accent-primary)' : 'transparent'}`,
+                    }}
+                    onMouseEnter={() => setHoveredChatId(chat.id)}
+                    onMouseLeave={() => setHoveredChatId(null)}
+                  >
+                    <button
+                      onClick={() => editingChatId !== chat.id && loadChat(chat.id)}
+                      className="w-full text-left p-2 transition-colors"
+                      style={{
+                        background: hoveredChatId === chat.id && chat.id !== currentChatId ? 'var(--bg-hover)' : 'transparent',
+                      }}
+                      disabled={editingChatId === chat.id}
+                    >
+                      {/* Title - editable or static */}
+                      {editingChatId === chat.id ? (
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              renameChat(chat.id, editingTitle);
+                            } else if (e.key === 'Escape') {
+                              setEditingChatId(null);
+                              setEditingTitle('');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (editingTitle.trim()) {
+                              renameChat(chat.id, editingTitle);
+                            } else {
+                              setEditingChatId(null);
+                              setEditingTitle('');
+                            }
+                          }}
+                          autoFocus
+                          className="w-full text-xs font-medium mb-1 px-1 rounded"
+                          style={{ 
+                            color: 'var(--text-primary)',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--accent-primary)',
+                            outline: 'none'
+                          }}
+                        />
+                      ) : (
+                        <div 
+                          className="text-xs font-medium truncate mb-1"
+                          style={{ color: 'var(--text-primary)' }}
+                        >
+                          {chat.title || 'Untitled chat'}
+                        </div>
+                      )}
+                      
+                      <div 
+                        className="text-xs"
+                        style={{ 
+                          color: 'var(--text-muted)',
+                          fontSize: '10px'
+                        }}
+                      >
+                        {new Date(chat.updated_at).toLocaleDateString('it-IT', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </button>
+
+                    {/* Action buttons - show on hover */}
+                    {hoveredChatId === chat.id && editingChatId !== chat.id && (
+                      <div 
+                        className="absolute top-2 right-2 flex gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingChatId(chat.id);
+                            setEditingTitle(chat.title || '');
+                          }}
+                          className="p-1 rounded transition-colors"
+                          style={{ 
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-muted)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = 'var(--accent-primary)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = 'var(--text-muted)';
+                          }}
+                          title="Rename chat"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                        
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingChatId(chat.id);
+                          }}
+                          className="p-1 rounded transition-colors"
+                          style={{ 
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-muted)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#ef4444';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = 'var(--text-muted)';
+                          }}
+                          title="Delete chat"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Delete Confirmation Dialog */}
+            {deletingChatId && (
+              <>
+                <div 
+                  className="fixed inset-0 bg-black/40 z-40"
+                  onClick={() => setDeletingChatId(null)}
+                />
+                <div 
+                  className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-80 rounded-lg p-4"
+                  style={{ 
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-default)',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+                  }}
+                >
+                  <h4 
+                    className="text-sm font-semibold mb-2"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    Delete Chat?
+                  </h4>
+                  <p 
+                    className="text-xs mb-4"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    This action cannot be undone. The chat and all its messages will be permanently deleted.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setDeletingChatId(null)}
+                      className="px-3 py-1.5 rounded text-xs transition-colors"
+                      style={{ 
+                        background: 'var(--bg-tertiary)',
+                        color: 'var(--text-primary)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'var(--bg-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'var(--bg-tertiary)';
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => deleteChat(deletingChatId)}
+                      className="px-3 py-1.5 rounded text-xs transition-colors"
+                      style={{ 
+                        background: '#ef4444',
+                        color: 'white'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#dc2626';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#ef4444';
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+      )}
     </div>
   );
 }
@@ -316,58 +993,164 @@ export default function ChatPanel({
 function MessageBubble({ message }: { message: any }) {
   const isUser = message.role === 'user';
   
-  // Estrai testo e tool invocations dalle parts
-  const textParts: string[] = [];
-  const toolInvocations: ToolInvocationUI[] = [];
-  
-  if (message.parts) {
-    for (const part of message.parts) {
-      if (part.type === 'text') {
-        textParts.push(part.text);
-      } else if (part.type === 'tool-invocation') {
-        toolInvocations.push(part.toolInvocation);
-      }
-    }
-  } else if (message.content) {
-    // Fallback per messaggi con content invece di parts
-    textParts.push(message.content);
-  }
-  
-  // Check anche toolInvocations direttamente nel message (AI SDK potrebbe metterli qui)
-  if (message.toolInvocations && Array.isArray(message.toolInvocations)) {
-    toolInvocations.push(...message.toolInvocations);
+  // Per messaggi utente, rendering semplice
+  if (isUser) {
+    const content = message.content || (message.parts?.[0]?.text);
+    return (
+      <div className="message-animate flex justify-end">
+        <div 
+          className="max-w-[85%] rounded-xl px-3 py-2 text-xs"
+          style={{ 
+            background: 'var(--chat-user-bg)',
+            color: 'var(--text-primary)'
+          }}
+        >
+          <div className="chat-markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  const hasToolCalls = toolInvocations.length > 0;
-  const textContent = textParts.join('\n');
-
+  // Per messaggi AI, renderizza tutti gli step
+  const parts = message.parts || [];
+  
   return (
-    <div className={`message-animate flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className="message-animate flex justify-start">
       <div 
-        className="max-w-[85%] rounded-xl px-4 py-2.5"
+        className="max-w-[85%] rounded-xl px-3 py-2 text-xs space-y-2"
         style={{ 
-          background: isUser ? 'var(--chat-user-bg)' : 'var(--bg-tertiary)',
+          background: 'var(--bg-tertiary)',
           color: 'var(--text-primary)'
         }}
       >
-        {/* Tool invocations */}
-        {hasToolCalls && (
-          <div className="mb-2 space-y-2">
-            {toolInvocations.map((tool, index) => (
-              <ToolInvocationDisplay key={index} tool={tool} />
-            ))}
-          </div>
-        )}
-        
-        {/* Message content */}
-        {textContent && (
-          <div className="chat-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {textContent}
-            </ReactMarkdown>
-          </div>
-        )}
+        {parts.map((part: any, index: number) => {
+          // Ignora step-start (è solo un marker)
+          if (part.type === 'step-start') {
+            return null;
+          }
+
+          // Renderizza testo normale
+          if (part.type === 'text' && part.text) {
+            return (
+              <div key={index} className="chat-markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {part.text}
+                </ReactMarkdown>
+              </div>
+            );
+          }
+
+          // Renderizza tool calls
+          if (part.type?.startsWith('tool-')) {
+            return <ToolStepDisplay key={index} part={part} />;
+          }
+
+          return null;
+        })}
       </div>
+    </div>
+  );
+}
+
+// Componente per mostrare uno step di tool
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ToolStepDisplay({ part }: { part: any }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const toolName = part.type.replace('tool-', '');
+  const toolLabels: Record<string, string> = {
+    'getDataSources': 'Get Data Sources',
+    'bash': 'Bash Command',
+  };
+  const label = toolLabels[toolName] || toolName;
+  
+  const hasOutput = part.state === 'output-available' && part.output;
+  const isSuccess = hasOutput && part.output.success !== false;
+  
+  return (
+    <div className="my-2">
+      {/* Tool header - clickable */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between px-2 py-1.5 rounded transition-colors text-left"
+        style={{ 
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-subtle)',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'var(--bg-hover)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'var(--bg-secondary)';
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <Terminal size={12} style={{ color: 'var(--text-muted)' }} />
+          <span 
+            className="font-medium text-xs"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {label}
+          </span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {hasOutput && (
+            <span 
+              className="text-xs"
+              style={{ color: isSuccess ? '#22c55e' : '#ef4444' }}
+            >
+              {isSuccess ? 'done' : 'error'}
+            </span>
+          )}
+          <ChevronDown 
+            size={12} 
+            style={{ 
+              color: 'var(--text-muted)',
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s'
+            }} 
+          />
+        </div>
+      </button>
+      
+      {/* Tool output - collapsible */}
+      {isExpanded && hasOutput && (
+        <div 
+          className="mt-1 p-2 rounded text-xs overflow-x-auto"
+          style={{ 
+            background: 'var(--bg-secondary)',
+          }}
+        >
+          {/* Se c'è stdout, mostralo */}
+          {part.output.stdout && (
+            <pre 
+              className="whitespace-pre-wrap text-xs"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {part.output.stdout}
+            </pre>
+          )}
+          
+          {/* Se c'è un messaggio di successo */}
+          {part.output.message && (
+            <div style={{ color: 'var(--text-secondary)' }}>
+              {part.output.message}
+            </div>
+          )}
+          
+          {/* Se c'è un errore */}
+          {!part.output.success && part.output.stderr && (
+            <div style={{ color: '#ef4444' }}>
+              Error: {part.output.stderr}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

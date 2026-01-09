@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       system: SYSTEM_PROMPT,
       messages: modelMessages,
       tools,
-      stopWhen: stepCountIs(10), // Allow up to 10 steps for multi-step tool calls
+      stopWhen: stepCountIs(20), // Allow up to 20 steps for multi-step tool calls
       onFinish: ({ text, toolCalls, toolResults, finishReason }) => {
         console.log('[API/chat] Stream finished');
         console.log('[API/chat] Tool calls:', JSON.stringify(toolCalls, null, 2));

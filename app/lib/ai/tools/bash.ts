@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Sandbox } from '@vercel/sandbox';
 import { createServiceClient } from '@/app/lib/supabase';
 import { decryptApiKey } from '@/app/lib/crypto';
+import { getSandboxPool } from './sandbox-pool';
 
 /**
  * Bash Tool - Permette all'AI di eseguire comandi bash nel sandbox
@@ -51,10 +52,10 @@ Examples:
     inputSchema: z.object({
       datasourceId: z.string().uuid().describe('The ID of the datasource to connect to. Use getDataSources to find available datasources.'),
       command: z.string().describe('The bash command to execute'),
-      workingDirectory: z.string().optional().describe('Working directory for the command (default: /home/user)'),
+      workingDirectory: z.string().optional().describe('Working directory for the command (default: /tmp)'),
       timeout: z.number().optional().describe('Timeout in milliseconds (default: 30000, max: 120000)'),
     }),
-    execute: async ({ datasourceId, command, workingDirectory = '/home/user', timeout = 30000 }) => {
+    execute: async ({ datasourceId, command, workingDirectory = '/tmp', timeout = 30000 }) => {
       // Limita il timeout
       const safeTimeout = Math.min(timeout, 120000);
       
@@ -141,86 +142,154 @@ Examples:
           }
         }
 
-        // 3. Crea il sandbox
-        console.log(`[BASH TOOL] Creating sandbox for datasource '${datasource.source_name}' (${dbType})`);
-        const sandbox = await Sandbox.create({
-          runtime: 'node24', // Runtime con Node.js e strumenti comuni
-          timeout: safeTimeout + 10000,
-        });
+        // 3. Ottieni un sandbox dal pool (riutilizza se disponibile)
+        console.log(`[BASH TOOL] Acquiring sandbox for datasource '${datasource.source_name}' (${dbType})`);
+        const pool = getSandboxPool();
+        const poolStats = pool.getStats();
+        console.log(`[BASH TOOL] Pool stats:`, poolStats);
+        
+        let sandbox = await pool.acquire('node24', safeTimeout + 10000);
+        let shouldRelease = true; // Flag per rilasciare il sandbox nel pool
+        let retryCount = 0;
+        const maxRetries = 1;
 
-        try {
-          // 4. Carica i file di documentazione
-          if (datasource.documentation && datasource.documentation.length > 0) {
-            console.log(`[BASH TOOL] Loading ${datasource.documentation.length} documentation file(s)`);
-            for (const doc of datasource.documentation) {
-              const docPath = `/docs/${doc.filename}`;
-              await sandbox.writeFiles([{
-                path: docPath,
-                content: Buffer.from(doc.markdown_content, 'utf-8'),
-              }]);
-            }
-          }
-
-          // 5. Esegui il comando con timeout
-          console.log(`[BASH TOOL] Executing command: ${command}`);
-          
-          // Crea un AbortController per gestire il timeout
-          const abortController = new AbortController();
-          const timeoutId = setTimeout(() => abortController.abort(), safeTimeout);
-          
+        // Retry loop per gestire sandbox "morti"
+        while (retryCount <= maxRetries) {
           try {
-            const result = await sandbox.runCommand({
-              cmd: 'bash',
-              args: ['-c', command],
-              cwd: workingDirectory,
-              env: envVars,
-              signal: abortController.signal,
-            });
-            
-            clearTimeout(timeoutId);
+            // 4. Carica i file di documentazione
+            if (datasource.documentation && datasource.documentation.length > 0) {
+              console.log(`[BASH TOOL] Loading ${datasource.documentation.length} documentation file(s)`);
+              for (const doc of datasource.documentation) {
+                const docPath = `/docs/${doc.filename}`;
+                await sandbox.writeFiles([{
+                  path: docPath,
+                  content: Buffer.from(doc.markdown_content, 'utf-8'),
+                }]);
+              }
+            }
 
-            console.log(`[BASH TOOL] Command completed with exit code ${result.exitCode}`);
-
-            return {
-              success: result.exitCode === 0,
-              exitCode: result.exitCode,
-              stdout: result.stdout,
-              stderr: result.stderr,
-              command,
-              workingDirectory,
-              datasourceName: datasource.source_name,
-              datasourceType: dbType,
-            };
-          } catch (abortError) {
-            clearTimeout(timeoutId);
+            // 5. Esegui il comando con timeout
+            console.log(`[BASH TOOL] Executing command: ${command}`);
             
-            if (abortError instanceof Error && abortError.name === 'AbortError') {
+            // Crea un AbortController per gestire il timeout
+            const abortController = new AbortController();
+            const timeoutId = setTimeout(() => abortController.abort(), safeTimeout);
+            
+            try {
+              const cmdResult = await sandbox.runCommand({
+                cmd: 'bash',
+                args: ['-c', command],
+                cwd: workingDirectory,
+                env: envVars,
+                signal: abortController.signal,
+              });
+            
+              clearTimeout(timeoutId);
+
+              // Leggi stdout e stderr come metodi asincroni
+              const stdout = await cmdResult.stdout();
+              const stderr = await cmdResult.stderr();
+
+              console.log(`[BASH TOOL] Command completed with exit code ${cmdResult.exitCode}`);
+              console.log(`[BASH TOOL] stdout length: ${stdout?.length || 0}`);
+              console.log(`[BASH TOOL] stderr length: ${stderr?.length || 0}`);
+              if (stdout) console.log(`[BASH TOOL] stdout preview:`, stdout.substring(0, 200));
+
+              // Successo! Rilascia il sandbox nel pool
+              pool.release(sandbox);
+              console.log(`[BASH TOOL] Sandbox released back to pool`);
+
               return {
-                success: false,
-                exitCode: 124, // Timeout exit code
-                stdout: '',
-                stderr: `Command timed out after ${safeTimeout}ms`,
+                success: cmdResult.exitCode === 0,
+                exitCode: cmdResult.exitCode,
+                stdout: stdout || '',
+                stderr: stderr || '',
                 command,
                 workingDirectory,
-                error: {
-                  type: 'TIMEOUT',
-                  message: `Command execution exceeded ${safeTimeout}ms timeout`,
-                  hint: 'Try increasing the timeout or optimizing your query.',
-                },
+                datasourceName: datasource.source_name,
+                datasourceType: dbType,
               };
+            } catch (abortError) {
+              clearTimeout(timeoutId);
+              
+              if (abortError instanceof Error && abortError.name === 'AbortError') {
+                pool.release(sandbox);
+                return {
+                  success: false,
+                  exitCode: 124, // Timeout exit code
+                  stdout: '',
+                  stderr: `Command timed out after ${safeTimeout}ms`,
+                  command,
+                  workingDirectory,
+                  error: {
+                    type: 'TIMEOUT',
+                    message: `Command execution exceeded ${safeTimeout}ms timeout`,
+                    hint: 'Try increasing the timeout or optimizing your query.',
+                  },
+                };
+              }
+              
+              throw abortError;
+            }
+          } catch (sandboxError) {
+            // Gestione errori specifici del sandbox
+            const errorMessage = sandboxError instanceof Error ? sandboxError.message : String(sandboxError);
+            
+            // Errore 410 = sandbox morto/fermato - rimuovi dal pool e riprova con uno nuovo
+            if (errorMessage.includes('410') || errorMessage.includes('sandbox_stopped') || errorMessage.includes('Gone')) {
+              console.log(`[BASH TOOL] Sandbox stopped/dead (410), removing from pool and retrying with new sandbox`);
+              pool.remove(sandbox);
+              shouldRelease = false; // Non rilasciare questo sandbox
+              
+              if (retryCount < maxRetries) {
+                retryCount++;
+                console.log(`[BASH TOOL] Retry attempt ${retryCount}/${maxRetries}`);
+                // Ottieni un nuovo sandbox
+                sandbox = await pool.acquire('node24', safeTimeout + 10000);
+                shouldRelease = true;
+                continue; // Riprova con il nuovo sandbox
+              } else {
+                return {
+                  success: false,
+                  exitCode: 1,
+                  stdout: '',
+                  stderr: 'Sandbox stopped unexpectedly. All retry attempts failed.',
+                  command,
+                  workingDirectory,
+                  error: {
+                    type: 'SANDBOX_STOPPED',
+                    message: 'The sandbox was stopped by Vercel and could not be recovered.',
+                    hint: 'This may be due to inactivity timeout. Try running the command again.',
+                  },
+                };
+              }
             }
             
-            throw abortError;
+            // Altri errori - propaga
+            throw sandboxError;
           }
-        } finally {
-          // 6. Cleanup: stoppa il sandbox
-          await sandbox.stop();
-          console.log(`[BASH TOOL] Sandbox stopped`);
         }
 
       } catch (error) {
         console.error('[BASH TOOL] Execution error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        
+        // Check for rate limiting
+        if (errorMessage.includes('429') || errorMessage.includes('rate_limited') || errorMessage.includes('Too Many Requests')) {
+          return {
+            success: false,
+            exitCode: 1,
+            stdout: '',
+            stderr: 'Vercel Sandbox rate limit reached. Please wait a few minutes before trying again.',
+            command,
+            workingDirectory,
+            error: {
+              type: 'RATE_LIMITED',
+              message: 'Too many sandbox requests. Rate limit exceeded.',
+              hint: 'Wait 2-3 minutes before running more database queries. The free tier has a limit of 40 sandboxes per time window.',
+            },
+          };
+        }
         
         return {
           success: false,
