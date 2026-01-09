@@ -1,8 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { streamText, stepCountIs, UIMessage, convertToModelMessages } from 'ai';
-import { defaultTools, SYSTEM_PROMPT } from '@/app/lib/ai';
+import { SYSTEM_PROMPT } from '@/app/lib/ai';
 import { createBashTool } from '@/app/lib/ai/tools/bash';
 import { createGetDataSourcesTool } from '@/app/lib/ai/tools/get-datasources';
+import { createEditFileTool } from '@/app/lib/ai/tools/edit-file-supabase';
 import { createServerSupabaseClient, createServiceClient } from '@/app/lib/supabase';
 import { decryptApiKey } from '@/app/lib/crypto';
 
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
     const tools = {
       getDataSources: createGetDataSourcesTool({ userId: user.id }),
       bash: createBashTool({ userId: user.id }),
-      editFile: defaultTools.editFile,
+      editFile: createEditFileTool({ userId: user.id }),
     };
 
     // Convert UI messages to model messages

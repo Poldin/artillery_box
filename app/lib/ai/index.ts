@@ -6,7 +6,8 @@
 
 // Tools
 export { editFileTool, setFileStorage, getFileStorage, type FileStorage } from './tools/edit-file';
-// Note: bash and getDataSources tools are server-only, import directly from './tools/*' in API routes
+// Note: bash, getDataSources, and editFile (Supabase version) are server-only, import directly from './tools/*' in API routes
+// Do NOT export createEditFileTool here - it uses server-only code (next/headers)
 
 // Context
 export { AIProvider, useAI } from './context';
@@ -49,9 +50,17 @@ Database credentials are available as environment variables:
 Documentation files are at /docs/<datasource_id>/
 
 ### 3. editFile
-Modify documentation files using precise before/after text replacement.
+Modify documentation files stored in the database for a specific datasource.
+
+**IMPORTANT**: You must specify both datasourceId and filename.
+
 Modes: replace, append, prepend, overwrite
 Always provide enough context in oldText to uniquely identify text.
+
+Use this to:
+- Update or fix documentation for databases
+- Add new sections to existing docs
+- Create new documentation files
 
 ## Workflow
 

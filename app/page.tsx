@@ -6,16 +6,20 @@ import ChatPanel from './components/ChatPanel';
 import DashboardCanvas from './components/DashboardCanvas';
 
 export default function Home() {
-  // Carica larghezza da localStorage o usa default
-  const [chatWidth, setChatWidth] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chatPanelWidth');
-      return saved ? parseInt(saved, 10) : 380;
-    }
-    return 380;
-  });
+  // Usa sempre il default per evitare hydration mismatch
+  const [chatWidth, setChatWidth] = useState(380);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [maxChatWidth, setMaxChatWidth] = useState(800);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Carica da localStorage solo dopo hydration (lato client)
+  useEffect(() => {
+    setIsHydrated(true);
+    const saved = localStorage.getItem('chatPanelWidth');
+    if (saved) {
+      setChatWidth(parseInt(saved, 10));
+    }
+  }, []);
 
   // Calcola maxWidth dinamicamente (metà della larghezza dello schermo)
   useEffect(() => {
@@ -28,10 +32,12 @@ export default function Home() {
     return () => window.removeEventListener('resize', updateMaxWidth);
   }, []);
 
-  // Salva larghezza in localStorage quando cambia
+  // Salva larghezza in localStorage quando cambia (solo dopo hydration)
   useEffect(() => {
-    localStorage.setItem('chatPanelWidth', chatWidth.toString());
-  }, [chatWidth]);
+    if (isHydrated) {
+      localStorage.setItem('chatPanelWidth', chatWidth.toString());
+    }
+  }, [chatWidth, isHydrated]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">

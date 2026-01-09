@@ -57,6 +57,7 @@ export default function ChatPanel({
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isSavingRef = useRef(false); // Ref per evitare loop infiniti
@@ -64,6 +65,7 @@ export default function ChatPanel({
   const prevIsLoadingRef = useRef(false); // Traccia lo stato precedente di isLoading
   const lastSavedHashRef = useRef<string>(''); // Hash dell'ultimo stato salvato
   const unchangedChecksRef = useRef(0); // Contatore di check senza modifiche
+  const userHasScrolledUpRef = useRef(false); // Traccia se l'utente ha scrollato verso l'alto
 
   // Modelli Claude disponibili
   const models = [
@@ -97,13 +99,40 @@ export default function ChatPanel({
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Controlla se l'utente è vicino al fondo (entro 100px)
+  const isNearBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    return distanceFromBottom < 100; // Entro 100px dal fondo
+  }, []);
 
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    userHasScrolledUpRef.current = false;
+  }, []);
+
+  // Auto-scroll solo se l'utente è vicino al fondo
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (isNearBottom() && !userHasScrolledUpRef.current) {
+      scrollToBottom();
+    }
+  }, [messages, isNearBottom, scrollToBottom]);
+
+  // Traccia quando l'utente scrolla manualmente
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      userHasScrolledUpRef.current = !isNearBottom();
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [isNearBottom]);
 
   // Auto-resize textarea in base al contenuto
   const autoResizeTextarea = useCallback(() => {
@@ -147,6 +176,7 @@ export default function ChatPanel({
     lastSavedMessageCountRef.current = 0; // Reset contatore messaggi salvati
     lastSavedHashRef.current = ''; // Reset hash
     unchangedChecksRef.current = 0; // Reset contatore check
+    localStorage.removeItem('currentChatId'); // Rimuovi da localStorage
   }, [setMessages]);
 
   // Cambia modello
@@ -193,6 +223,8 @@ export default function ChatPanel({
         lastSavedMessageCountRef.current = chat.messages?.length || 0;
         lastSavedHashRef.current = getMessagesHash(chat.messages || []);
         unchangedChecksRef.current = 0;
+        // Salva in localStorage per ripristino dopo refresh
+        localStorage.setItem('currentChatId', chat.id);
         // Non chiudere il pannello - lascialo aperto
       }
     } catch (error) {
@@ -213,7 +245,13 @@ export default function ChatPanel({
         
         // Se era la chat corrente, resetta
         if (chatId === currentChatId) {
-          handleReset();
+          handleReset(); // handleReset già pulisce il localStorage
+        } else {
+          // Se elimino una chat salvata in localStorage ma non corrente
+          const savedChatId = localStorage.getItem('currentChatId');
+          if (savedChatId === chatId) {
+            localStorage.removeItem('currentChatId');
+          }
         }
         
         setDeletingChatId(null);
@@ -254,6 +292,17 @@ export default function ChatPanel({
     }
   }, [showHistory, user, chatHistory.length, isLoadingHistory, loadChatHistory]);
 
+  // Ripristina la chat corrente dopo refresh
+  useEffect(() => {
+    if (user && messages.length === 0 && !currentChatId) {
+      const savedChatId = localStorage.getItem('currentChatId');
+      if (savedChatId) {
+        console.log('[ChatPanel] Restoring chat from localStorage:', savedChatId);
+        loadChat(savedChatId);
+      }
+    }
+  }, [user, messages.length, currentChatId, loadChat]);
+
   // Salva o aggiorna la chat
   const saveChat = useCallback(async (messagesToSave: any[]) => {
     if (!user || messagesToSave.length === 0 || isSavingRef.current) {
@@ -282,6 +331,8 @@ export default function ChatPanel({
           lastSavedHashRef.current = getMessagesHash(messagesToSave);
           unchangedChecksRef.current = 0; // Reset contatore
           console.log('[ChatPanel] Chat created:', chat.id);
+          // Salva in localStorage per ripristino dopo refresh
+          localStorage.setItem('currentChatId', chat.id);
           // Ricarica cronologia per includere la nuova chat
           if (chatHistory.length > 0) {
             loadChatHistory();
@@ -476,6 +527,7 @@ export default function ChatPanel({
 
       {/* Messages */}
       <div 
+        ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4 relative"
         style={{ scrollbarGutter: 'stable' }}
       >
@@ -1065,8 +1117,17 @@ function ToolStepDisplay({ part }: { part: any }) {
   const toolLabels: Record<string, string> = {
     'getDataSources': 'Get Data Sources',
     'bash': 'Bash Command',
+    'editFile': 'Edit Documentation',
   };
   const label = toolLabels[toolName] || toolName;
+  
+  // Icone per i diversi tool
+  const toolIcons: Record<string, any> = {
+    'getDataSources': FileEdit,
+    'bash': Terminal,
+    'editFile': FileEdit,
+  };
+  const Icon = toolIcons[toolName] || Terminal;
   
   const hasOutput = part.state === 'output-available' && part.output;
   const isSuccess = hasOutput && part.output.success !== false;
@@ -1089,7 +1150,7 @@ function ToolStepDisplay({ part }: { part: any }) {
         }}
       >
         <div className="flex items-center gap-2">
-          <Terminal size={12} style={{ color: 'var(--text-muted)' }} />
+          <Icon size={12} style={{ color: 'var(--text-muted)' }} />
           <span 
             className="font-medium text-xs"
             style={{ color: 'var(--text-secondary)' }}
@@ -1126,27 +1187,95 @@ function ToolStepDisplay({ part }: { part: any }) {
             background: 'var(--bg-secondary)',
           }}
         >
-          {/* Se c'è stdout, mostralo */}
-          {part.output.stdout && (
-            <pre 
-              className="whitespace-pre-wrap text-xs"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              {part.output.stdout}
-            </pre>
+          {/* Edit File - mostra info specifiche */}
+          {toolName === 'editFile' && (
+            <>
+              {part.output.filename && (
+                <div 
+                  className="mb-1 font-medium"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  📄 {part.output.filename}
+                  {part.output.datasourceName && (
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                      {' '}({part.output.datasourceName})
+                    </span>
+                  )}
+                </div>
+              )}
+              
+              {part.output.changesSummary && (
+                <div 
+                  className="mb-1"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {part.output.changesSummary}
+                </div>
+              )}
+              
+              {part.output.message && (
+                <div style={{ color: '#22c55e' }}>
+                  ✓ {part.output.message}
+                </div>
+              )}
+              
+              {/* Errori editFile */}
+              {!part.output.success && part.output.error && (
+                <div>
+                  <div style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                    Error: {part.output.error.message}
+                  </div>
+                  {part.output.error.hint && (
+                    <div className="mt-1" style={{ color: 'var(--text-muted)' }}>
+                      💡 {part.output.error.hint}
+                    </div>
+                  )}
+                  {part.output.error.filePreview && (
+                    <pre 
+                      className="mt-2 p-2 rounded text-xs"
+                      style={{ 
+                        background: 'var(--bg-tertiary)',
+                        maxHeight: '150px',
+                        overflow: 'auto'
+                      }}
+                    >
+                      {part.output.error.filePreview}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Bash - mostra stdout/stderr */}
+          {toolName === 'bash' && (
+            <>
+              {part.output.stdout && (
+                <pre 
+                  className="whitespace-pre-wrap text-xs"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {part.output.stdout}
+                </pre>
+              )}
+              
+              {!part.output.success && part.output.stderr && (
+                <div style={{ color: '#ef4444' }}>
+                  Error: {part.output.stderr}
+                </div>
+              )}
+            </>
           )}
           
-          {/* Se c'è un messaggio di successo */}
-          {part.output.message && (
+          {/* Get Data Sources - mostra messaggio */}
+          {toolName === 'getDataSources' && part.output.message && (
             <div style={{ color: 'var(--text-secondary)' }}>
               {part.output.message}
-            </div>
-          )}
-          
-          {/* Se c'è un errore */}
-          {!part.output.success && part.output.stderr && (
-            <div style={{ color: '#ef4444' }}>
-              Error: {part.output.stderr}
+              {part.output.count !== undefined && (
+                <span style={{ fontWeight: 'bold' }}>
+                  {' '}({part.output.count} found)
+                </span>
+              )}
             </div>
           )}
         </div>
