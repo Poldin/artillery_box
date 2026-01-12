@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import TopBar from './components/TopBar';
 import ChatPanel from './components/ChatPanel';
 import DashboardCanvas, { Dashboard } from './components/DashboardCanvas';
@@ -59,6 +59,13 @@ export default function Home() {
     }
   }, [jsonEditorWidth, isHydrated]);
 
+  // Callback per quando l'AI modifica una dashboard
+  const handleDashboardModified = useCallback((dashboardId: string, dashboardName: string) => {
+    setModifiedDashboardId(dashboardId);
+    setModifiedDashboardName(dashboardName);
+    setDashboardVersion(prev => prev + 1);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* Top Bar */}
@@ -116,11 +123,7 @@ export default function Home() {
             onWidthChange={setChatWidth}
             minWidth={320}
             maxWidth={maxChatWidth}
-            onDashboardModified={(dashboardId, dashboardName) => {
-              setModifiedDashboardId(dashboardId);
-              setModifiedDashboardName(dashboardName);
-              setDashboardVersion(prev => prev + 1);
-            }}
+            onDashboardModified={handleDashboardModified}
           />
         )}
       </div>

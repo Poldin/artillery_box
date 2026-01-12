@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, ChevronDown, Plus, Check, MessageSquare, Share2, Loader2, Edit3, Trash2, Code } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import ChartWidget from './widgets/ChartWidget';
@@ -18,6 +18,26 @@ export interface Widget {
   position: number;
   created_at?: string;
   updated_at?: string;
+  
+  // Dynamic widget fields
+  isDynamic?: boolean; // Se true, i dati vengono fetchati dinamicamente
+  dataSource?: {
+    datasourceId: string;
+    query: string;
+  };
+  template?: {
+    // Template per widget dinamici (con placeholder {{column_name}})
+    chartType?: string;
+    plotlyConfig?: {
+      data: Plotly.Data[];
+      layout?: Partial<Plotly.Layout>;
+    };
+    columns?: string[];
+    rows?: unknown[][];
+  };
+  lastFetched?: string; // Timestamp dell'ultimo fetch
+  fetchError?: string; // Errore nell'ultimo fetch (manteniamo dati vecchi + errore)
+  
   data: {
     // Chart
     chartType?: string;
@@ -82,10 +102,21 @@ export default function DashboardCanvas({
   const [widgetToDelete, setWidgetToDelete] = useState<string | null>(null); // Widget ID con 1 click, conferma al 2° click
   const [showShareModal, setShowShareModal] = useState(false);
   const [isShared, setIsShared] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hydratedWidgets, setHydratedWidgets] = useState<Widget[]>([]); // Widget con dati dinamici fetchati
+  const [isHydrating, setIsHydrating] = useState(false); // Loading state per hydration
+  const hydratedDashboardIdRef = useRef<string | null>(null); // Track quale dashboard è stata hydratata
 
   const selectedDashboard = dashboards.find(d => d.id === selectedDashboardId);
   const selectedDashboardName = selectedDashboard?.name || 'Select Dashboard';
-  const widgets = selectedDashboard?.widgets || [];
+  
+  // Usa sempre hydratedWidgets se appartengono alla dashboard corrente
+  // I widget nel DB hanno data: {} vuoto per i dinamici, quindi preferiamo sempre la cache
+  const useHydratedCache = hydratedWidgets.length > 0 && hydratedDashboardIdRef.current === selectedDashboardId;
+  
+  const widgets = useHydratedCache 
+    ? hydratedWidgets 
+    : (selectedDashboard?.widgets || []);
   
   // Tronca descrizione a max 10 parole
   const truncateDescription = (text: string | undefined) => {
@@ -128,11 +159,26 @@ export default function DashboardCanvas({
     } finally {
       setIsLoading(false);
     }
-  }, [user, selectedDashboardId]);
+  // NOTA: usiamo user?.id invece di user per evitare che il refresh della sessione
+  // Supabase (che crea un nuovo oggetto user con la stessa identity) causi un refetch
+  // inutile che perderebbe i dati hydrated dei widget dinamici
+  }, [user?.id, selectedDashboardId]);
 
   useEffect(() => {
     fetchDashboards();
   }, [fetchDashboards]);
+  
+  // Hydrata widget al mount iniziale (quando selectedDashboard è già definita da localStorage)
+  useEffect(() => {
+    if (selectedDashboard?.widgets && selectedDashboard.widgets.length > 0 && selectedDashboard.id) {
+      const hasDynamic = selectedDashboard.widgets.some(w => w.isDynamic);
+      
+      if (hasDynamic && hydratedDashboardIdRef.current === null) {
+        hydrateWidgets(selectedDashboard.widgets, selectedDashboard.id);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboards.length]); // Triggera quando arrivano i dati dal server
 
   // Salva in localStorage quando cambia la dashboard selezionata
   useEffect(() => {
@@ -148,9 +194,19 @@ export default function DashboardCanvas({
     }
   }, [selectedDashboard, onSelectedDashboardChange]);
 
+  // Reset immediato di hydratedWidgets quando cambia la dashboard selezionata
+  // Questo previene di vedere widget della dashboard precedente
+  useEffect(() => {
+    setHydratedWidgets([]);
+    hydratedDashboardIdRef.current = null;
+  }, [selectedDashboardId]);
+
   // Ricarica dashboards quando cambia la versione (dopo salvataggio JSON)
   useEffect(() => {
     if (dashboardVersion > 0) {
+      // Reset hydrated widgets per riflettere modifiche dal JSON editor
+      setHydratedWidgets([]);
+      hydratedDashboardIdRef.current = null;
       fetchDashboards();
     }
   }, [dashboardVersion, fetchDashboards]);
@@ -182,6 +238,10 @@ export default function DashboardCanvas({
   // e ricarica sempre le dashboard per mostrare i nuovi widget
   useEffect(() => {
     if (modifiedDashboardId) {
+      // Reset hydrated widgets per mostrare subito i nuovi widget
+      setHydratedWidgets([]);
+      hydratedDashboardIdRef.current = null; // Reset ref per forzare re-hydration
+      
       // Ricarica sempre le dashboard per mostrare i nuovi widget
       fetchDashboards();
       
@@ -252,6 +312,8 @@ export default function DashboardCanvas({
         });
         
         if (response.ok) {
+          // Filtra il widget eliminato dai dati già hydratati (preserva gli altri)
+          setHydratedWidgets(prev => prev.filter(w => w.id !== widgetId));
           fetchDashboards();
           setWidgetToDelete(null);
         }
@@ -264,6 +326,181 @@ export default function DashboardCanvas({
       // Reset dopo 3 secondi
       setTimeout(() => setWidgetToDelete(null), 3000);
     }
+  };
+
+  // Sostituisce placeholder {{column_name}} con valori reali
+  const replacePlaceholders = (template: unknown, data: Record<string, unknown>[], widgetType: 'chart' | 'table' | 'markdown' | 'query'): unknown => {
+    if (!data || data.length === 0) return template;
+    
+    const templateStr = JSON.stringify(template);
+    
+    // Caso speciale: {{*}} per tabelle (converte oggetti in array di array)
+    if (templateStr.includes('"{{*}}"')) {
+      // Estrai le colonne dal template
+      const templateObj = template as { columns?: string[]; rows?: string };
+      const columns = templateObj.columns || Object.keys(data[0]);
+      
+      // Converti ogni row in array secondo l'ordine delle colonne
+      const rows = data.map(row => 
+        columns.map(col => row[col])
+      );
+      
+      return {
+        ...templateObj,
+        columns,
+        rows,
+      };
+    }
+    
+    // Trova tutti i placeholder {{column_name}}
+    const placeholderRegex = /\{\{([^}]+)\}\}/g;
+    let result = templateStr;
+    
+    // Sostituisci ogni placeholder
+    const matches = templateStr.match(placeholderRegex);
+    if (matches) {
+      for (const match of matches) {
+        const columnName = match.replace(/\{\{|\}\}/g, '').trim();
+        
+        if (widgetType === 'markdown') {
+          // Per markdown: usa il primo valore (query dovrebbe ritornare 1 riga)
+          const value = data[0]?.[columnName];
+          // Sostituisci il placeholder con il valore (può essere stringa, numero, etc)
+          const valueStr = value !== null && value !== undefined ? String(value) : '';
+          // Escape dei backslash e quotes per JSON
+          const escapedValue = valueStr.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+          result = result.replace(`"${match}"`, `"${escapedValue}"`);
+        } else {
+          // Per chart/table: usa array di tutti i valori
+          const columnValues = data.map(row => row[columnName]);
+          // Sostituisci con array JSON
+          result = result.replace(`"${match}"`, JSON.stringify(columnValues));
+        }
+      }
+    }
+    
+    return JSON.parse(result);
+  };
+
+  // Fetcha dati per un singolo widget dinamico
+  const fetchWidgetData = async (widget: Widget): Promise<Widget> => {
+    if (!widget.isDynamic || !widget.dataSource) {
+      return widget;
+    }
+
+    try {
+      const response = await fetch('/api/query/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasourceId: widget.dataSource.datasourceId,
+          query: widget.dataSource.query,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        // Hydrata il template con i dati
+        const hydratedData = widget.template 
+          ? replacePlaceholders(widget.template, result.data as Record<string, unknown>[], widget.type)
+          : widget.data;
+
+        return {
+          ...widget,
+          data: hydratedData as Widget['data'],
+          lastFetched: result.executedAt || new Date().toISOString(),
+          fetchError: undefined,
+        };
+      } else {
+        // Errore nella query - mantieni dati vecchi
+        console.error('[DashboardCanvas] Query failed for', widget.id, ':', result.error);
+        return {
+          ...widget,
+          fetchError: result.error || 'Failed to fetch data',
+        };
+      }
+    } catch (error) {
+      console.error('[DashboardCanvas] Error fetching widget data:', widget.id, error);
+      return {
+        ...widget,
+        fetchError: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  };
+
+  // Hydrata tutti i widget dinamici
+  const hydrateWidgets = async (widgets: Widget[], dashboardId: string) => {
+    const dynamicWidgets = widgets.filter(w => w.isDynamic);
+    
+    if (dynamicWidgets.length === 0) {
+      setHydratedWidgets(widgets);
+      hydratedDashboardIdRef.current = dashboardId;
+      setIsHydrating(false);
+      return;
+    }
+
+    setIsHydrating(true);
+    
+    try {
+      // Fetcha in parallelo tutti i widget dinamici
+      const hydratedPromises = widgets.map(widget => 
+        widget.isDynamic ? fetchWidgetData(widget) : Promise.resolve(widget)
+      );
+
+      const hydrated = await Promise.all(hydratedPromises);
+      setHydratedWidgets(hydrated);
+      hydratedDashboardIdRef.current = dashboardId;
+    } finally {
+      setIsHydrating(false);
+    }
+  };
+
+  // Hydrata widget quando cambia la dashboard selezionata
+  useEffect(() => {
+    const doHydration = async () => {
+      if (selectedDashboard?.widgets && selectedDashboard.widgets.length > 0 && selectedDashboard.id) {
+        // Hydrata solo se non abbiamo già dati in cache per questa dashboard
+        if (hydratedDashboardIdRef.current !== selectedDashboard.id) {
+          await hydrateWidgets(selectedDashboard.widgets, selectedDashboard.id);
+        }
+      } else {
+        setHydratedWidgets([]);
+        hydratedDashboardIdRef.current = null;
+      }
+    };
+    
+    doHydration();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDashboard?.id]); // Triggera solo quando cambia dashboard, non quando cambia il numero di widget
+
+  // NESSUN auto-refresh! L'utente controlla quando refreshare
+  // I dati rimangono finché:
+  // - L'utente non cambia dashboard
+  // - L'utente non clicca manualmente il bottone refresh
+
+  // Handler per refresh manuale
+  const handleRefreshData = async () => {
+    if (!selectedDashboard?.widgets || !selectedDashboard.id) return;
+    
+    setIsRefreshing(true);
+    await hydrateWidgets(selectedDashboard.widgets, selectedDashboard.id);
+    setIsRefreshing(false);
+  };
+
+  // Handler per refresh singolo widget
+  const handleRefreshWidget = async (widgetId: string) => {
+    if (!selectedDashboard) return;
+    
+    const widget = selectedDashboard.widgets.find(w => w.id === widgetId);
+    if (!widget || !widget.isDynamic) return;
+
+    const hydratedWidget = await fetchWidgetData(widget);
+    
+    // Aggiorna solo questo widget
+    setHydratedWidgets(prev => 
+      prev.map(w => w.id === widgetId ? hydratedWidget : w)
+    );
   };
 
   return (
@@ -488,23 +725,28 @@ export default function DashboardCanvas({
 
           {/* Refresh data button */}
           <button
+            onClick={handleRefreshData}
+            disabled={isRefreshing}
             className="p-1.5 rounded-lg transition-colors"
             style={{
               background: 'var(--bg-tertiary)',
               border: '1px solid var(--border-subtle)',
-              color: 'var(--text-tertiary)'
+              color: isRefreshing ? 'var(--text-muted)' : 'var(--text-tertiary)',
+              cursor: isRefreshing ? 'not-allowed' : 'pointer'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-default)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
+              if (!isRefreshing) {
+                e.currentTarget.style.borderColor = 'var(--border-default)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.borderColor = 'var(--border-subtle)';
-              e.currentTarget.style.color = 'var(--text-tertiary)';
+              e.currentTarget.style.color = isRefreshing ? 'var(--text-muted)' : 'var(--text-tertiary)';
             }}
-            title="Refresh data"
+            title="Refresh dynamic data"
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
           </button>
 
           {/* Chat toggle button */}
@@ -594,37 +836,53 @@ export default function DashboardCanvas({
           <div className="space-y-4 max-w-6xl mx-auto">
             {[...widgets]
               .sort((a, b) => a.position - b.position)
-              .map((widget) => (
-                <div key={widget.id} className="min-h-[300px]">
-                  {widget.type === 'chart' && widget.data.plotlyConfig && (
+              .map((widget) => {
+                // Altezza minima solo per chart (grafici hanno bisogno di spazio)
+                const minHeightClass = widget.type === 'chart' ? 'min-h-[300px]' : '';
+                
+                return (
+                  <div key={widget.id} className={minHeightClass}>
+                    {widget.type === 'chart' && (widget.data.plotlyConfig || widget.isDynamic) && (
                     <ChartWidget
                       title={widget.title}
-                      plotlyConfig={widget.data.plotlyConfig}
-                      updatedAt={widget.updated_at}
+                      plotlyConfig={widget.data.plotlyConfig || { data: [], layout: {} }}
+                      updatedAt={widget.lastFetched || widget.updated_at}
                       onDelete={() => handleDeleteWidget(widget.id)}
                       isDeleting={widgetToDelete === widget.id}
+                      isDynamic={widget.isDynamic}
+                      onRefresh={() => handleRefreshWidget(widget.id)}
+                      isRefreshing={isHydrating}
+                      fetchError={widget.fetchError}
                     />
                   )}
-                  {widget.type === 'table' && widget.data.columns && widget.data.rows && (
+                  {widget.type === 'table' && ((widget.data.columns && widget.data.rows) || widget.isDynamic) && (
                     <TableWidget
                       title={widget.title}
-                      columns={widget.data.columns}
-                      rows={widget.data.rows}
-                      updatedAt={widget.updated_at}
+                      columns={widget.data.columns || []}
+                      rows={widget.data.rows || []}
+                      updatedAt={widget.lastFetched || widget.updated_at}
                       onDelete={() => handleDeleteWidget(widget.id)}
                       isDeleting={widgetToDelete === widget.id}
+                      isDynamic={widget.isDynamic}
+                      onRefresh={() => handleRefreshWidget(widget.id)}
+                      isRefreshing={isHydrating}
+                      fetchError={widget.fetchError}
                     />
                   )}
-                  {widget.type === 'markdown' && widget.data.content && (
+                  {widget.type === 'markdown' && (widget.data.content || widget.isDynamic) && (
                     <MarkdownWidget
                       title={widget.title}
-                      content={widget.data.content}
-                      updatedAt={widget.updated_at}
+                      content={widget.data.content || 'Loading...'}
+                      updatedAt={widget.lastFetched || widget.updated_at}
                       onDelete={() => handleDeleteWidget(widget.id)}
                       isDeleting={widgetToDelete === widget.id}
                       widgetId={widget.id}
                       dashboardId={selectedDashboard.id}
                       onUpdate={fetchDashboards}
+                      isDynamic={widget.isDynamic}
+                      onRefresh={() => handleRefreshWidget(widget.id)}
+                      isRefreshing={isHydrating}
+                      fetchError={widget.fetchError}
                     />
                   )}
                   {widget.type === 'query' && widget.data.query && (
@@ -637,8 +895,9 @@ export default function DashboardCanvas({
                       isDeleting={widgetToDelete === widget.id}
                     />
                   )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
           </div>
         )}
       </div>

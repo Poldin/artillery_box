@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import WidgetHeader from './WidgetHeader';
-import { Edit3, Check, X, Trash2 } from 'lucide-react';
+import { Edit3, Check, X, Trash2, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 
 interface MarkdownWidgetProps {
   title: string;
@@ -16,9 +16,27 @@ interface MarkdownWidgetProps {
   dashboardId: string;
   onUpdate?: () => void; // Callback per ricaricare la dashboard
   readOnly?: boolean;
+  isDynamic?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  fetchError?: string;
 }
 
-export default function MarkdownWidget({ title, content, updatedAt, onDelete, isDeleting, widgetId, dashboardId, onUpdate, readOnly = false }: MarkdownWidgetProps) {
+export default function MarkdownWidget({ 
+  title, 
+  content, 
+  updatedAt, 
+  onDelete, 
+  isDeleting, 
+  widgetId, 
+  dashboardId, 
+  onUpdate, 
+  readOnly = false,
+  isDynamic,
+  onRefresh,
+  isRefreshing,
+  fetchError
+}: MarkdownWidgetProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(content);
   const [isSaving, setIsSaving] = useState(false);
@@ -96,21 +114,52 @@ export default function MarkdownWidget({ title, content, updatedAt, onDelete, is
       }}
     >
       <div className="flex items-start justify-between mb-3">
-        <h3 
-          className="text-sm font-medium"
-          style={{ color: 'var(--text-primary)' }}
-        >
-          {title}
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 
+            className="text-sm font-medium"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {title}
+          </h3>
+          
+          {/* Dynamic indicator (lightning icon) */}
+          {isDynamic && (
+            <div 
+              className="flex items-center"
+              title="Dynamic data"
+            >
+              <Zap 
+                size={12} 
+                style={{ color: '#fbbf24' }}
+                fill="#fbbf24"
+              />
+            </div>
+          )}
+        </div>
         
         <div className="flex items-center gap-2">
+          {/* Error indicator */}
+          {fetchError && (
+            <div 
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded"
+              style={{ 
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: '#ef4444'
+              }}
+              title={fetchError}
+            >
+              <AlertCircle size={12} />
+              <span className="text-xs">Error</span>
+            </div>
+          )}
+          
           {/* Timestamp */}
           {updatedAt && (
             <span 
               className="text-xs"
               style={{ color: 'var(--text-muted)' }}
             >
-              Last: {new Date(updatedAt).toLocaleString('en-US', {
+              {new Date(updatedAt).toLocaleString('en-US', {
                 month: 'short',
                 day: '2-digit',
                 hour: '2-digit',
@@ -120,8 +169,36 @@ export default function MarkdownWidget({ title, content, updatedAt, onDelete, is
             </span>
           )}
           
-          {/* Edit button (show when not editing and not read-only) */}
-          {!isEditing && !readOnly && (
+          {/* Refresh button (only for dynamic widgets) */}
+          {isDynamic && onRefresh && !readOnly && !isEditing && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="p-1 rounded transition-colors"
+              style={{ 
+                color: isRefreshing ? 'var(--text-muted)' : 'var(--text-tertiary)',
+                cursor: isRefreshing ? 'not-allowed' : 'pointer'
+              }}
+              onMouseEnter={(e) => {
+                if (!isRefreshing) {
+                  e.currentTarget.style.color = 'var(--text-primary)';
+                  e.currentTarget.style.background = 'var(--bg-hover)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isRefreshing) {
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+              title="Refresh data"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+          )}
+          
+          {/* Edit button (show when not editing, not read-only, and not dynamic) */}
+          {!isEditing && !readOnly && !isDynamic && (
             <button
               onClick={() => setIsEditing(true)}
               className="p-1 rounded transition-colors"
@@ -140,7 +217,7 @@ export default function MarkdownWidget({ title, content, updatedAt, onDelete, is
             </button>
           )}
           
-          {/* Delete button (only if not read-only) */}
+          {/* Delete button (only if not read-only and not editing) */}
           {!isEditing && !readOnly && onDelete && (
             <button
               onClick={onDelete}
@@ -217,6 +294,20 @@ export default function MarkdownWidget({ title, content, updatedAt, onDelete, is
           )}
         </div>
       </div>
+      
+      {/* Full error message */}
+      {fetchError && (
+        <div 
+          className="mb-3 p-2 rounded text-xs"
+          style={{ 
+            background: 'rgba(239, 68, 68, 0.05)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            color: '#ef4444'
+          }}
+        >
+          {fetchError}
+        </div>
+      )}
       
       {/* Content - editable or rendered */}
       {isEditing ? (

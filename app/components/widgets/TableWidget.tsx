@@ -10,9 +10,25 @@ interface TableWidgetProps {
   onDelete?: () => void;
   isDeleting?: boolean;
   readOnly?: boolean;
+  isDynamic?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  fetchError?: string;
 }
 
-export default function TableWidget({ title, columns, rows, updatedAt, onDelete, isDeleting, readOnly = false }: TableWidgetProps) {
+export default function TableWidget({ 
+  title, 
+  columns, 
+  rows, 
+  updatedAt, 
+  onDelete, 
+  isDeleting, 
+  readOnly = false,
+  isDynamic,
+  onRefresh,
+  isRefreshing,
+  fetchError
+}: TableWidgetProps) {
   return (
     <div 
       className="rounded-xl p-4 h-full flex flex-col"
@@ -27,6 +43,10 @@ export default function TableWidget({ title, columns, rows, updatedAt, onDelete,
         onDelete={onDelete}
         isDeleting={isDeleting}
         readOnly={readOnly}
+        isDynamic={isDynamic}
+        onRefresh={onRefresh}
+        isRefreshing={isRefreshing}
+        fetchError={fetchError}
       />
       <div className="overflow-auto flex-1">
         <table className="w-full text-sm">

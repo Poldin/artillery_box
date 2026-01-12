@@ -43,29 +43,91 @@ Use this tool to create or modify visualizations after analyzing data with the b
 3. If user wants to update existing data, provide widgetId to update (instead of creating new)
 4. If no suitable dashboard exists, you can create a new one
 
-**Widget Types:**
+**Widget Types: STATIC vs DYNAMIC**
 
-1. **chart** - Plotly charts (bar, line, pie, scatter, etc.)
-   Required: plotlyConfig with data and optional layout
-   
-2. **table** - Data tables
-   Required: columns (array of strings), rows (array of arrays)
-   
-3. **markdown** - Text notes and summaries
-   Required: content (markdown text)
-   
-4. **query** - Saved SQL queries
-   Required: query (SQL text), optional: description, datasourceId
+STATIC WIDGETS (data saved in database):
+- Use when data doesn't change frequently
+- Faster to load (no query execution)
+- Good for snapshots, historical data, notes
+
+DYNAMIC WIDGETS (data fetched live from data sources):
+- Use when data needs to be always up-to-date
+- Set isDynamic=true, provide dataSource (datasourceId + query), and template with {{column_name}} placeholders
+- Data refreshes automatically when dashboard opens
+- Shown with lightning icon ⚡
+
+**1. chart (Plotly charts)**
+
+STATIC: Provide plotlyConfig with data directly
+DYNAMIC: Set isDynamic=true, provide dataSource (datasourceId, query) and template with {{column_name}} placeholders
+
+Example DYNAMIC chart:
+{
+  isDynamic: true,
+  dataSource: {
+    datasourceId: "uuid-here",
+    query: "SELECT month, revenue FROM sales WHERE year = 2025"
+  },
+  template: {
+    plotlyConfig: {
+      data: [{
+        x: "{{month}}",
+        y: "{{revenue}}",
+        type: "bar"
+      }]
+    }
+  }
+}
+
+**2. table (Data tables)**
+
+STATIC: Provide columns and rows directly
+DYNAMIC: Set isDynamic=true, provide dataSource and template with "rows": "{{*}}" for auto-mapping
+
+Example DYNAMIC table:
+{
+  isDynamic: true,
+  dataSource: {
+    datasourceId: "uuid-here",
+    query: "SELECT name, revenue, orders FROM customers ORDER BY revenue DESC LIMIT 10"
+  },
+  template: {
+    columns: ["Name", "Revenue", "Orders"],
+    rows: "{{*}}"
+  }
+}
+
+**3. markdown** - Text notes and summaries
+
+STATIC: Provide content with markdown text directly
+DYNAMIC: Set isDynamic=true, provide dataSource and template.content with {{column_name}} placeholders
+
+Example DYNAMIC markdown:
+{
+  isDynamic: true,
+  dataSource: {
+    datasourceId: "uuid-here",
+    query: "SELECT current_date as date, SUM(amount) as total, COUNT(*) as orders FROM sales WHERE date = CURRENT_DATE"
+  },
+  template: {
+    content: "# Daily Report {{date}}\\n\\n**Total Sales:** {{total}}€\\n**Orders:** {{orders}}"
+  }
+}
+
+Note: Query should return a SINGLE ROW for markdown (use aggregations or LIMIT 1)
+
+**4. query** - DEPRECATED! Use dynamic chart/table instead!
+   This type is deprecated. For live data, use isDynamic=true on chart/table widgets.
+
+**Placeholder Syntax:**
+- {{column_name}} gets replaced with array of all values from that column
+- {{*}} for tables auto-maps all rows
+- Column names must match SQL query results exactly
 
 **Adding vs Updating:**
 - To ADD new widget: provide dashboardId only (widgetId will be auto-generated)
 - To UPDATE existing widget: provide both dashboardId AND widgetId
 - Updating replaces the widget's data completely
-
-**Examples:**
-- Add bar chart: dashboardId="...", type="chart", plotlyConfig={...}
-- Update table: dashboardId="...", widgetId="widget-123", type="table", columns=[...], rows=[...]
-- New dashboard: omit dashboardId, provide dashboardName="Sales Analytics", dashboardDescription="Q1 sales performance"
 
 **Creating dashboards:**
 - Always provide a specific dashboardDescription (3-5 words describing the content)
@@ -78,8 +140,29 @@ Always ask user which dashboard to use if multiple suitable ones exist!
       widgetId: z.string().optional().describe('Widget ID to update. If provided, updates existing widget. If omitted, creates new widget.'),
       dashboardName: z.string().optional().describe('Name for new dashboard (only used if dashboardId is not provided). Default: "AI Dashboard"'),
       dashboardDescription: z.string().optional().describe('Brief description for new dashboard (3-5 words, e.g., "Sales performance overview"). Only used if creating new dashboard.'),
-      widgetType: z.enum(['chart', 'table', 'markdown', 'query']).describe('Type of widget: chart, table, markdown, or query'),
-      title: z.string().describe('Widget title (e.g., "Monthly Revenue", "Top Products")'),
+      widgetType: z.enum(['chart', 'table', 'markdown', 'query']).describe('Type of widget: chart, table, markdown, or query (query is deprecated, use dynamic chart/table instead)'),
+      title: z.string().describe('Widget title (e.g., "Monthly Revenue (Live)", "Top Products")'),
+      
+      // Dynamic widget fields
+      isDynamic: z.boolean().optional().describe('Set to true for dynamic widgets that fetch data from a data source. Default: false (static)'),
+      dataSource: z.object({
+        datasourceId: z.string().uuid().describe('Data source ID to query'),
+        query: z.string().describe('SQL query to execute (for SQL databases) or JSON for MongoDB'),
+      }).optional().describe('Data source configuration for dynamic widgets. Required if isDynamic=true'),
+      template: z.object({
+        // Chart template with placeholders
+        plotlyConfig: z.object({
+          data: z.array(z.unknown()),
+          layout: z.unknown().optional(),
+        }).optional(),
+        // Table template with placeholders
+        columns: z.array(z.string()).optional(),
+        rows: z.unknown().optional(), // Can be "{{*}}" or array with placeholders
+        // Markdown template with placeholders
+        content: z.string().optional(),
+      }).optional().describe('Template with {{column_name}} placeholders for dynamic widgets. Required if isDynamic=true'),
+      
+      // Static widget data (for non-dynamic widgets)
       data: z.object({
         // Chart data
         plotlyConfig: z.object({
@@ -91,61 +174,121 @@ Always ask user which dashboard to use if multiple suitable ones exist!
         rows: z.array(z.array(z.unknown())).optional(),
         // Markdown data
         content: z.string().optional(),
-        // Query data
+        // Query data (deprecated)
         query: z.string().optional(),
         description: z.string().optional(),
         datasourceId: z.string().uuid().optional(),
-      }).describe('Widget data - structure depends on widgetType'),
+      }).optional().describe('Widget data for static widgets. For dynamic widgets, use template instead'),
     }),
-    execute: async ({ dashboardId, widgetId, dashboardName, dashboardDescription, widgetType, title, data }): Promise<AddWidgetResult> => {
+    execute: async ({ dashboardId, widgetId, dashboardName, dashboardDescription, widgetType, title, isDynamic, dataSource, template, data }): Promise<AddWidgetResult> => {
       try {
         const serviceClient = createServiceClient();
         let targetDashboardId = dashboardId;
         let targetDashboardName = '';
 
-        // Validate widget data based on type
-        if (widgetType === 'chart' && !data.plotlyConfig) {
-          return {
-            success: false,
-            error: {
-              type: 'INVALID_WIDGET_DATA',
-              message: 'Chart widget requires plotlyConfig',
-              hint: 'Provide plotlyConfig with data array and optional layout object',
-            },
-          };
+        // Validate dynamic widget requirements
+        if (isDynamic) {
+          if (!dataSource || !dataSource.datasourceId || !dataSource.query) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Dynamic widgets require dataSource with datasourceId and query',
+                hint: 'Provide dataSource: { datasourceId: "uuid", query: "SELECT ..." }',
+              },
+            };
+          }
+
+          if (!template) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Dynamic widgets require template with placeholders',
+                hint: 'Provide template with {{column_name}} placeholders matching query results',
+              },
+            };
+          }
+
+          if (widgetType === 'chart' && !template.plotlyConfig) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Dynamic chart widget requires template.plotlyConfig with placeholders',
+                hint: 'Example: template: { plotlyConfig: { data: [{ x: "{{column}}", y: "{{value}}" }] } }',
+              },
+            };
+          }
+
+          if (widgetType === 'table' && (!template.columns || !template.rows)) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Dynamic table widget requires template.columns and template.rows',
+                hint: 'Example: template: { columns: ["Name", "Value"], rows: "{{*}}" }',
+              },
+            };
+          }
+
+          if (widgetType === 'markdown' && !template.content) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Dynamic markdown widget requires template.content with placeholders',
+                hint: 'Example: template: { content: "# Report\\n\\nTotal: {{total}}\\nDate: {{date}}" }',
+              },
+            };
+          }
         }
 
-        if (widgetType === 'table' && (!data.columns || !data.rows)) {
-          return {
-            success: false,
-            error: {
-              type: 'INVALID_WIDGET_DATA',
-              message: 'Table widget requires columns and rows',
-              hint: 'Provide columns (array of strings) and rows (array of arrays)',
-            },
-          };
-        }
+        // Validate static widget data
+        if (!isDynamic && data) {
+          if (widgetType === 'chart' && !data.plotlyConfig) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Static chart widget requires data.plotlyConfig',
+                hint: 'Provide data.plotlyConfig with data array and optional layout object',
+              },
+            };
+          }
 
-        if (widgetType === 'markdown' && !data.content) {
-          return {
-            success: false,
-            error: {
-              type: 'INVALID_WIDGET_DATA',
-              message: 'Markdown widget requires content',
-              hint: 'Provide content as markdown text string',
-            },
-          };
-        }
+          if (widgetType === 'table' && (!data.columns || !data.rows)) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Static table widget requires data.columns and data.rows',
+                hint: 'Provide data.columns (array of strings) and data.rows (array of arrays)',
+              },
+            };
+          }
 
-        if (widgetType === 'query' && !data.query) {
-          return {
-            success: false,
-            error: {
-              type: 'INVALID_WIDGET_DATA',
-              message: 'Query widget requires query',
-              hint: 'Provide query as SQL text string',
-            },
-          };
+          if (widgetType === 'markdown' && !data.content) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Markdown widget requires data.content',
+                hint: 'Provide data.content as markdown text string',
+              },
+            };
+          }
+
+          if (widgetType === 'query' && !data.query) {
+            return {
+              success: false,
+              error: {
+                type: 'INVALID_WIDGET_DATA',
+                message: 'Query widget requires data.query',
+                hint: 'Note: query widgets are deprecated. Use dynamic chart/table instead with isDynamic=true',
+              },
+            };
+          }
         }
 
         // Se non è fornito dashboardId, crea una nuova dashboard
@@ -235,7 +378,15 @@ Always ask user which dashboard to use if multiple suitable ones exist!
             position: existingWidget.position,
             created_at: existingWidget.created_at || new Date().toISOString(), // Mantieni created_at esistente
             updated_at: new Date().toISOString(), // Aggiorna timestamp
-            data,
+            ...(isDynamic ? {
+              isDynamic: true,
+              dataSource,
+              template,
+              data: {}, // Empty data for dynamic widgets (will be populated on fetch)
+            } : {
+              isDynamic: false,
+              data: data || {},
+            }),
           };
 
           updatedWidgets = [...widgets];
@@ -243,7 +394,7 @@ Always ask user which dashboard to use if multiple suitable ones exist!
           widgetIdToUse = widgetId;
           isUpdate = true;
           
-          console.log('[ADD_DASHBOARD_WIDGET] Updating widget:', widgetId);
+          console.log('[ADD_DASHBOARD_WIDGET] Updating widget:', widgetId, isDynamic ? '(dynamic)' : '(static)');
         } else {
           // ADD: Crea nuovo widget
           const newPosition = widgets.length; // Posiziona alla fine
@@ -257,12 +408,20 @@ Always ask user which dashboard to use if multiple suitable ones exist!
             position: newPosition,
             created_at: now,
             updated_at: now,
-            data,
+            ...(isDynamic ? {
+              isDynamic: true,
+              dataSource,
+              template,
+              data: {}, // Empty data for dynamic widgets (will be populated on fetch)
+            } : {
+              isDynamic: false,
+              data: data || {},
+            }),
           };
 
           updatedWidgets = [...widgets, newWidget];
           
-          console.log('[ADD_DASHBOARD_WIDGET] Creating new widget:', widgetIdToUse);
+          console.log('[ADD_DASHBOARD_WIDGET] Creating new widget:', widgetIdToUse, isDynamic ? '(dynamic)' : '(static)');
         }
 
         // Aggiorna la dashboard

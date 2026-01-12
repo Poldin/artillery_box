@@ -16,9 +16,24 @@ interface ChartWidgetProps {
   onDelete?: () => void;
   isDeleting?: boolean;
   readOnly?: boolean;
+  isDynamic?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  fetchError?: string;
 }
 
-export default function ChartWidget({ title, plotlyConfig, updatedAt, onDelete, isDeleting, readOnly = false }: ChartWidgetProps) {
+export default function ChartWidget({ 
+  title, 
+  plotlyConfig, 
+  updatedAt, 
+  onDelete, 
+  isDeleting, 
+  readOnly = false,
+  isDynamic,
+  onRefresh,
+  isRefreshing,
+  fetchError
+}: ChartWidgetProps) {
   return (
     <div 
       className="rounded-xl p-4 h-full flex flex-col"
@@ -33,6 +48,10 @@ export default function ChartWidget({ title, plotlyConfig, updatedAt, onDelete, 
         onDelete={onDelete}
         isDeleting={isDeleting}
         readOnly={readOnly}
+        isDynamic={isDynamic}
+        onRefresh={onRefresh}
+        isRefreshing={isRefreshing}
+        fetchError={fetchError}
       />
       <div className="flex-1 min-h-0">
         <Plot
