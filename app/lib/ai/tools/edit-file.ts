@@ -128,7 +128,7 @@ The tool returns detailed error messages if:
 Always provide enough context in oldText to uniquely identify the text to change.
 `,
     inputSchema: z.object({
-    path: z.string().describe('The file path (e.g., /docs/production_db/schema.md)'),
+    path: z.string().describe('The file path (e.g., docs/production_db/schema.md or schema.md)'),
     oldText: z.string().describe('The exact text to find and replace. Use empty string for append/prepend/overwrite modes.'),
     newText: z.string().describe('The new text to insert. Use empty string to delete the oldText.'),
     mode: z.enum(['replace', 'append', 'prepend', 'overwrite']).optional().default('replace')

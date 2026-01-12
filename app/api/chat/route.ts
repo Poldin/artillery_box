@@ -4,6 +4,8 @@ import { SYSTEM_PROMPT } from '@/app/lib/ai';
 import { createBashTool } from '@/app/lib/ai/tools/bash';
 import { createGetDataSourcesTool } from '@/app/lib/ai/tools/get-datasources';
 import { createEditFileTool } from '@/app/lib/ai/tools/edit-file-supabase';
+import { createAddDashboardWidgetTool } from '@/app/lib/ai/tools/add-dashboard-widget';
+import { createGetDashboardsTool } from '@/app/lib/ai/tools/get-dashboards';
 import { createServerSupabaseClient, createServiceClient } from '@/app/lib/supabase';
 import { decryptApiKey } from '@/app/lib/crypto';
 
@@ -98,6 +100,8 @@ export async function POST(req: Request) {
       getDataSources: createGetDataSourcesTool({ userId: user.id }),
       bash: createBashTool({ userId: user.id }),
       editFile: createEditFileTool({ userId: user.id }),
+      getDashboards: createGetDashboardsTool({ userId: user.id }),
+      addDashboardWidget: createAddDashboardWidgetTool({ userId: user.id }),
     };
 
     // Convert UI messages to model messages

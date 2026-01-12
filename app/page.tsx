@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import TopBar from './components/TopBar';
 import ChatPanel from './components/ChatPanel';
-import DashboardCanvas from './components/DashboardCanvas';
+import DashboardCanvas, { Dashboard } from './components/DashboardCanvas';
+import JSONEditorPanel from './components/JSONEditorPanel';
 
 export default function Home() {
   // Usa sempre il default per evitare hydration mismatch
@@ -11,6 +12,14 @@ export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [maxChatWidth, setMaxChatWidth] = useState(800);
   const [isHydrated, setIsHydrated] = useState(false);
+  // Dashboard modificata dall'AI
+  const [modifiedDashboardId, setModifiedDashboardId] = useState<string | null>(null);
+  const [modifiedDashboardName, setModifiedDashboardName] = useState<string | null>(null);
+  // JSON Editor Panel
+  const [isJsonEditorOpen, setIsJsonEditorOpen] = useState(false);
+  const [jsonEditorWidth, setJsonEditorWidth] = useState(500);
+  const [selectedDashboard, setSelectedDashboard] = useState<Dashboard | null>(null);
+  const [dashboardVersion, setDashboardVersion] = useState(0);
 
   // Carica da localStorage solo dopo hydration (lato client)
   useEffect(() => {
@@ -18,6 +27,10 @@ export default function Home() {
     const saved = localStorage.getItem('chatPanelWidth');
     if (saved) {
       setChatWidth(parseInt(saved, 10));
+    }
+    const savedJsonWidth = localStorage.getItem('jsonEditorWidth');
+    if (savedJsonWidth) {
+      setJsonEditorWidth(parseInt(savedJsonWidth, 10));
     }
   }, []);
 
@@ -39,6 +52,13 @@ export default function Home() {
     }
   }, [chatWidth, isHydrated]);
 
+  // Salva larghezza JSON editor
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('jsonEditorWidth', jsonEditorWidth.toString());
+    }
+  }, [jsonEditorWidth, isHydrated]);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* Top Bar */}
@@ -49,8 +69,45 @@ export default function Home() {
         {/* Dashboard Canvas */}
         <DashboardCanvas 
           isChatOpen={isChatOpen}
-          onToggleChat={() => setIsChatOpen(!isChatOpen)}
+          onToggleChat={() => {
+            if (!isChatOpen) {
+              // Se apriamo la chat, chiudiamo il JSON editor
+              setIsJsonEditorOpen(false);
+            }
+            setIsChatOpen(!isChatOpen);
+          }}
+          isJsonEditorOpen={isJsonEditorOpen}
+          onToggleJsonEditor={() => {
+            if (!isJsonEditorOpen) {
+              // Se apriamo il JSON editor, chiudiamo la chat
+              setIsChatOpen(false);
+            }
+            setIsJsonEditorOpen(!isJsonEditorOpen);
+          }}
+          modifiedDashboardId={modifiedDashboardId}
+          modifiedDashboardName={modifiedDashboardName}
+          onNotificationDismiss={() => {
+            setModifiedDashboardId(null);
+            setModifiedDashboardName(null);
+          }}
+          onSelectedDashboardChange={setSelectedDashboard}
+          dashboardVersion={dashboardVersion}
         />
+
+        {/* JSON Editor Panel */}
+        {isJsonEditorOpen && (
+          <JSONEditorPanel
+            width={jsonEditorWidth}
+            onWidthChange={setJsonEditorWidth}
+            minWidth={400}
+            maxWidth={maxChatWidth}
+            dashboard={selectedDashboard}
+            onSave={() => {
+              // Forza il ricaricamento della dashboard incrementando la versione
+              setDashboardVersion(prev => prev + 1);
+            }}
+          />
+        )}
 
         {/* Chat Panel */}
         {isChatOpen && (
@@ -59,6 +116,11 @@ export default function Home() {
             onWidthChange={setChatWidth}
             minWidth={320}
             maxWidth={maxChatWidth}
+            onDashboardModified={(dashboardId, dashboardName) => {
+              setModifiedDashboardId(dashboardId);
+              setModifiedDashboardName(dashboardName);
+              setDashboardVersion(prev => prev + 1);
+            }}
           />
         )}
       </div>

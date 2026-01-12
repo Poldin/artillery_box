@@ -7,6 +7,7 @@ const publicRoutes = [
   '/auth/reset-password',
   '/terms',
   '/privacy',
+  '/dashare',
 ];
 
 // Rotte API che gestiscono la propria autenticazione

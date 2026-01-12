@@ -71,7 +71,7 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { title, messages } = body;
+    const { title, messages, is_auto_title } = body;
 
     // Valida che messages sia un array se fornito
     if (messages !== undefined && !Array.isArray(messages)) {
@@ -95,6 +95,10 @@ export async function PATCH(
     if (messages !== undefined) {
       updateData.messages = messages;
       updateData.message_count = messages.length;
+    }
+
+    if (is_auto_title !== undefined) {
+      updateData.is_auto_title = is_auto_title;
     }
 
     const { data: chat, error } = await serviceClient

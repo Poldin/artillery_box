@@ -1,19 +1,23 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, Plus, Check, MessageSquare, Share2, Loader2, Edit3 } from 'lucide-react';
+import { RefreshCw, ChevronDown, Plus, Check, MessageSquare, Share2, Loader2, Edit3, Trash2, Code } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import ChartWidget from './widgets/ChartWidget';
 import TableWidget from './widgets/TableWidget';
 import MarkdownWidget from './widgets/MarkdownWidget';
 import QueryWidget from './widgets/QueryWidget';
 import CreateDashboardModal from './CreateDashboardModal';
+import DashboardChangeNotification from './DashboardChangeNotification';
+import ShareDashboardModal from './ShareDashboardModal';
 
-interface Widget {
+export interface Widget {
   id: string;
   type: 'chart' | 'table' | 'markdown' | 'query';
   title: string;
   position: number;
+  created_at?: string;
+  updated_at?: string;
   data: {
     // Chart
     chartType?: string;
@@ -33,7 +37,7 @@ interface Widget {
   };
 }
 
-interface Dashboard {
+export interface Dashboard {
   id: string;
   name: string;
   description?: string;
@@ -45,9 +49,26 @@ interface Dashboard {
 interface DashboardCanvasProps {
   isChatOpen?: boolean;
   onToggleChat?: () => void;
+  isJsonEditorOpen?: boolean;
+  onToggleJsonEditor?: () => void;
+  modifiedDashboardId?: string | null; // Dashboard ID modificata dall'AI
+  modifiedDashboardName?: string | null; // Nome dashboard modificata
+  onNotificationDismiss?: () => void; // Callback quando notifica viene chiusa
+  onSelectedDashboardChange?: (dashboard: Dashboard | null) => void; // Callback quando cambia dashboard selezionata
+  dashboardVersion?: number; // Versione per forzare ricaricamento
 }
 
-export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: DashboardCanvasProps) {
+export default function DashboardCanvas({ 
+  isChatOpen = true, 
+  onToggleChat,
+  isJsonEditorOpen = false,
+  onToggleJsonEditor,
+  modifiedDashboardId,
+  modifiedDashboardName,
+  onNotificationDismiss,
+  onSelectedDashboardChange,
+  dashboardVersion = 0,
+}: DashboardCanvasProps) {
   const { user } = useAuth();
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [selectedDashboardId, setSelectedDashboardId] = useState<string | null>(null);
@@ -55,6 +76,12 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingDashboard, setEditingDashboard] = useState<Dashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showNotification, setShowNotification] = useState(false);
+  const [deletingDashboardId, setDeletingDashboardId] = useState<string | null>(null);
+  const [hoveredDashboardId, setHoveredDashboardId] = useState<string | null>(null);
+  const [widgetToDelete, setWidgetToDelete] = useState<string | null>(null); // Widget ID con 1 click, conferma al 2° click
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [isShared, setIsShared] = useState(false);
 
   const selectedDashboard = dashboards.find(d => d.id === selectedDashboardId);
   const selectedDashboardName = selectedDashboard?.name || 'Select Dashboard';
@@ -114,6 +141,131 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
     }
   }, [selectedDashboardId]);
 
+  // Notifica al parent quando cambia la dashboard selezionata
+  useEffect(() => {
+    if (onSelectedDashboardChange) {
+      onSelectedDashboardChange(selectedDashboard || null);
+    }
+  }, [selectedDashboard, onSelectedDashboardChange]);
+
+  // Ricarica dashboards quando cambia la versione (dopo salvataggio JSON)
+  useEffect(() => {
+    if (dashboardVersion > 0) {
+      fetchDashboards();
+    }
+  }, [dashboardVersion, fetchDashboards]);
+
+  // Fetch stato condivisione quando cambia la dashboard selezionata
+  useEffect(() => {
+    const fetchSharingStatus = async () => {
+      if (!selectedDashboardId) {
+        setIsShared(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/dashboards/${selectedDashboardId}/share`);
+        if (response.ok) {
+          const data = await response.json();
+          setIsShared(data.is_shared || false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sharing status:', error);
+        setIsShared(false);
+      }
+    };
+
+    fetchSharingStatus();
+  }, [selectedDashboardId]);
+
+  // Mostra notifica quando l'AI modifica una dashboard diversa da quella selezionata
+  // e ricarica sempre le dashboard per mostrare i nuovi widget
+  useEffect(() => {
+    if (modifiedDashboardId) {
+      // Ricarica sempre le dashboard per mostrare i nuovi widget
+      fetchDashboards();
+      
+      // Mostra notifica solo se è una dashboard diversa da quella corrente
+      if (modifiedDashboardId !== selectedDashboardId) {
+        setShowNotification(true);
+      }
+    }
+  }, [modifiedDashboardId, selectedDashboardId, fetchDashboards]);
+
+  // Handler per visualizzare la dashboard modificata
+  const handleViewModifiedDashboard = () => {
+    if (modifiedDashboardId) {
+      setSelectedDashboardId(modifiedDashboardId);
+      setShowNotification(false);
+      onNotificationDismiss?.();
+    }
+  };
+
+  // Handler per chiudere la notifica
+  const handleDismissNotification = () => {
+    setShowNotification(false);
+    onNotificationDismiss?.();
+  };
+
+  // Handler per eliminare dashboard
+  const handleDeleteDashboard = async (dashboardId: string) => {
+    try {
+      const response = await fetch(`/api/dashboards/${dashboardId}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        // Se era la dashboard selezionata, cambia selezione
+        if (dashboardId === selectedDashboardId) {
+          const remainingDashboards = dashboards.filter(d => d.id !== dashboardId);
+          if (remainingDashboards.length > 0) {
+            setSelectedDashboardId(remainingDashboards[0].id);
+          } else {
+            setSelectedDashboardId(null);
+          }
+        }
+        
+        // Ricarica la lista
+        fetchDashboards();
+        setDeletingDashboardId(null);
+      }
+    } catch (error) {
+      console.error('[DashboardCanvas] Error deleting dashboard:', error);
+    }
+  };
+
+  // Handler per eliminare widget (con conferma al secondo click)
+  const handleDeleteWidget = async (widgetId: string) => {
+    if (!selectedDashboard) return;
+
+    if (widgetToDelete === widgetId) {
+      // Secondo click - conferma ed elimina
+      try {
+        const updatedWidgets = selectedDashboard.widgets.filter(w => w.id !== widgetId);
+        
+        const response = await fetch(`/api/dashboards/${selectedDashboard.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            widgets: updatedWidgets,
+          }),
+        });
+        
+        if (response.ok) {
+          fetchDashboards();
+          setWidgetToDelete(null);
+        }
+      } catch (error) {
+        console.error('[DashboardCanvas] Error deleting widget:', error);
+      }
+    } else {
+      // Primo click - attiva conferma
+      setWidgetToDelete(widgetId);
+      // Reset dopo 3 secondi
+      setTimeout(() => setWidgetToDelete(null), 3000);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       {/* Top bar with dashboard selector and refresh */}
@@ -166,22 +318,58 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
                 }}
               >
                 {dashboards.map((dashboard) => (
-                  <button
+                  <div
                     key={dashboard.id}
-                    onClick={() => {
-                      setSelectedDashboardId(dashboard.id);
-                      setShowDashboardMenu(false);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm transition-colors flex items-center justify-between"
-                    style={{ color: 'var(--text-primary)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    className="relative"
+                    onMouseEnter={() => setHoveredDashboardId(dashboard.id)}
+                    onMouseLeave={() => setHoveredDashboardId(null)}
                   >
-                    {dashboard.name}
-                    {selectedDashboardId === dashboard.id && (
-                      <Check size={14} style={{ color: 'var(--accent-primary)' }} />
+                    <button
+                      onClick={() => {
+                        setSelectedDashboardId(dashboard.id);
+                        setShowDashboardMenu(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm transition-colors flex items-center justify-between"
+                      style={{ color: 'var(--text-primary)' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <span className="truncate flex-1">{dashboard.name}</span>
+                      <div className="flex items-center gap-2 ml-2">
+                        {selectedDashboardId === dashboard.id && (
+                          <Check size={14} style={{ color: 'var(--accent-primary)' }} />
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Delete button - show on hover */}
+                    {hoveredDashboardId === dashboard.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingDashboardId(dashboard.id);
+                          setShowDashboardMenu(false);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
+                        style={{ 
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-muted)',
+                          zIndex: 10,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#ef4444';
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = 'var(--text-muted)';
+                          e.currentTarget.style.background = 'var(--bg-secondary)';
+                        }}
+                        title="Delete dashboard"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     )}
-                  </button>
+                  </div>
                 ))}
                 
                 {/* Separator */}
@@ -247,25 +435,56 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
         {/* Right buttons */}
         <div className="flex items-center gap-2">
           {/* Share button */}
-          <button
-            className="p-1.5 rounded-lg transition-colors"
-            style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-tertiary)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-default)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-subtle)';
-              e.currentTarget.style.color = 'var(--text-tertiary)';
-            }}
-            title="Share dashboard"
-          >
-            <Share2 size={14} />
-          </button>
+          {selectedDashboard && (
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-subtle)',
+                color: isShared ? 'var(--accent-primary)' : 'var(--text-tertiary)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-default)';
+                if (!isShared) {
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                if (!isShared) {
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                }
+              }}
+              title={isShared ? 'Dashboard is shared' : 'Share dashboard'}
+            >
+              <Share2 size={14} />
+            </button>
+          )}
+
+          {/* JSON Editor toggle button */}
+          {onToggleJsonEditor && selectedDashboard && (
+            <button
+              onClick={onToggleJsonEditor}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-subtle)',
+                color: isJsonEditorOpen ? 'var(--accent-primary)' : 'var(--text-tertiary)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-default)';
+                if (!isJsonEditorOpen) e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                if (!isJsonEditorOpen) e.currentTarget.style.color = 'var(--text-tertiary)';
+              }}
+              title={isJsonEditorOpen ? 'Close JSON editor' : 'Open JSON editor'}
+            >
+              <Code size={14} />
+            </button>
+          )}
 
           {/* Refresh data button */}
           <button
@@ -381,6 +600,9 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
                     <ChartWidget
                       title={widget.title}
                       plotlyConfig={widget.data.plotlyConfig}
+                      updatedAt={widget.updated_at}
+                      onDelete={() => handleDeleteWidget(widget.id)}
+                      isDeleting={widgetToDelete === widget.id}
                     />
                   )}
                   {widget.type === 'table' && widget.data.columns && widget.data.rows && (
@@ -388,12 +610,21 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
                       title={widget.title}
                       columns={widget.data.columns}
                       rows={widget.data.rows}
+                      updatedAt={widget.updated_at}
+                      onDelete={() => handleDeleteWidget(widget.id)}
+                      isDeleting={widgetToDelete === widget.id}
                     />
                   )}
                   {widget.type === 'markdown' && widget.data.content && (
                     <MarkdownWidget
                       title={widget.title}
                       content={widget.data.content}
+                      updatedAt={widget.updated_at}
+                      onDelete={() => handleDeleteWidget(widget.id)}
+                      isDeleting={widgetToDelete === widget.id}
+                      widgetId={widget.id}
+                      dashboardId={selectedDashboard.id}
+                      onUpdate={fetchDashboards}
                     />
                   )}
                   {widget.type === 'query' && widget.data.query && (
@@ -401,6 +632,9 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
                       title={widget.title}
                       query={widget.data.query}
                       description={widget.data.description}
+                      updatedAt={widget.updated_at}
+                      onDelete={() => handleDeleteWidget(widget.id)}
+                      isDeleting={widgetToDelete === widget.id}
                     />
                   )}
                 </div>
@@ -426,6 +660,103 @@ export default function DashboardCanvas({ isChatOpen = true, onToggleChat }: Das
         }}
         dashboardToEdit={editingDashboard}
       />
+
+      {/* Dashboard Change Notification */}
+      {showNotification && modifiedDashboardName && (
+        <DashboardChangeNotification
+          dashboardName={modifiedDashboardName}
+          onViewDashboard={handleViewModifiedDashboard}
+          onDismiss={handleDismissNotification}
+        />
+      )}
+
+      {/* Share Dashboard Modal */}
+      {selectedDashboard && (
+        <ShareDashboardModal
+          isOpen={showShareModal}
+          onClose={() => {
+            setShowShareModal(false);
+            // Ricarica lo stato di condivisione dopo la chiusura del modal
+            if (selectedDashboardId) {
+              fetch(`/api/dashboards/${selectedDashboardId}/share`)
+                .then(res => res.json())
+                .then(data => setIsShared(data.is_shared || false))
+                .catch(err => console.error('Failed to fetch sharing status:', err));
+            }
+          }}
+          dashboardId={selectedDashboard.id}
+          dashboardName={selectedDashboard.name}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deletingDashboardId && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/40 z-40"
+            onClick={() => setDeletingDashboardId(null)}
+          />
+          <div 
+            className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-96 rounded-lg p-4"
+            style={{ 
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-default)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+            }}
+          >
+            <h4 
+              className="text-sm font-semibold mb-2"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              Delete Dashboard?
+            </h4>
+            <p 
+              className="text-xs mb-4"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              This action cannot be undone. The dashboard{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>
+                {dashboards.find(d => d.id === deletingDashboardId)?.name}
+              </strong>
+              {' '}and all its widgets will be permanently deleted.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeletingDashboardId(null)}
+                className="px-3 py-1.5 rounded text-xs transition-colors"
+                style={{ 
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-primary)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-tertiary)';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteDashboard(deletingDashboardId)}
+                className="px-3 py-1.5 rounded text-xs transition-colors"
+                style={{ 
+                  background: '#ef4444',
+                  color: 'white'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#dc2626';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ef4444';
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

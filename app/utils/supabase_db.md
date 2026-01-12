@@ -9,6 +9,7 @@ CREATE TABLE public.chats (
   updated_at timestamp with time zone DEFAULT now(),
   messages jsonb NOT NULL DEFAULT '[]'::jsonb,
   message_count integer DEFAULT 0,
+  is_auto_title boolean DEFAULT true,
   CONSTRAINT chats_pkey PRIMARY KEY (id),
   CONSTRAINT chats_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
@@ -21,6 +22,8 @@ CREATE TABLE public.dashboards (
   layout_config jsonb DEFAULT '{}'::jsonb,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  sharing_uid uuid DEFAULT gen_random_uuid(),
+  is_shared boolean DEFAULT false,
   CONSTRAINT dashboards_pkey PRIMARY KEY (id),
   CONSTRAINT dashboards_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );

@@ -41,10 +41,10 @@ The sandbox has pre-installed:
 
 When you provide a datasourceId:
 - Database credentials are loaded and set as environment variables: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_TYPE
-- Documentation files are loaded at /docs/
+- Documentation files are loaded at docs/ (relative to working directory /vercel/sandbox)
 
 Examples:
-- Read schema docs: cat /docs/schema.md
+- Read schema docs: cat docs/schema.md
 - Query PostgreSQL: psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "SELECT * FROM users LIMIT 10"
 - Query MySQL: mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME -e "SHOW TABLES"
 - Query MongoDB: mongosh "mongodb://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME" --eval "db.users.find().limit(10)"
@@ -52,10 +52,10 @@ Examples:
     inputSchema: z.object({
       datasourceId: z.string().uuid().describe('The ID of the datasource to connect to. Use getDataSources to find available datasources.'),
       command: z.string().describe('The bash command to execute'),
-      workingDirectory: z.string().optional().describe('Working directory for the command (default: /tmp)'),
+      workingDirectory: z.string().optional().describe('Working directory for the command (default: /vercel/sandbox)'),
       timeout: z.number().optional().describe('Timeout in milliseconds (default: 30000, max: 120000)'),
     }),
-    execute: async ({ datasourceId, command, workingDirectory = '/tmp', timeout = 30000 }) => {
+    execute: async ({ datasourceId, command, workingDirectory = '/vercel/sandbox', timeout = 30000 }) => {
       // Limita il timeout
       const safeTimeout = Math.min(timeout, 120000);
       
@@ -160,7 +160,8 @@ Examples:
             if (datasource.documentation && datasource.documentation.length > 0) {
               console.log(`[BASH TOOL] Loading ${datasource.documentation.length} documentation file(s)`);
               for (const doc of datasource.documentation) {
-                const docPath = `/docs/${doc.filename}`;
+                // Usa path relativo alla working directory /vercel/sandbox
+                const docPath = `docs/${doc.filename}`;
                 await sandbox.writeFiles([{
                   path: docPath,
                   content: Buffer.from(doc.markdown_content, 'utf-8'),

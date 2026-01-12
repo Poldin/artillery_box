@@ -1,12 +1,18 @@
 'use client';
 
+import WidgetHeader from './WidgetHeader';
+
 interface QueryWidgetProps {
   title: string;
   query: string;
   description?: string;
+  updatedAt?: string;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+  readOnly?: boolean;
 }
 
-export default function QueryWidget({ title, query, description }: QueryWidgetProps) {
+export default function QueryWidget({ title, query, description, updatedAt, onDelete, isDeleting, readOnly = false }: QueryWidgetProps) {
   return (
     <div 
       className="rounded-xl p-4 h-full"
@@ -15,12 +21,13 @@ export default function QueryWidget({ title, query, description }: QueryWidgetPr
         border: '1px solid var(--border-subtle)'
       }}
     >
-      <h3 
-        className="text-sm font-medium mb-2"
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {title}
-      </h3>
+      <WidgetHeader 
+        title={title}
+        updatedAt={updatedAt}
+        onDelete={onDelete}
+        isDeleting={isDeleting}
+        readOnly={readOnly}
+      />
       {description && (
         <p 
           className="text-xs mb-3"

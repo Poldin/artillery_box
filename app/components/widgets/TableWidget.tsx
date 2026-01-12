@@ -1,12 +1,18 @@
 'use client';
 
+import WidgetHeader from './WidgetHeader';
+
 interface TableWidgetProps {
   title: string;
   columns: string[];
   rows: unknown[][];
+  updatedAt?: string;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+  readOnly?: boolean;
 }
 
-export default function TableWidget({ title, columns, rows }: TableWidgetProps) {
+export default function TableWidget({ title, columns, rows, updatedAt, onDelete, isDeleting, readOnly = false }: TableWidgetProps) {
   return (
     <div 
       className="rounded-xl p-4 h-full flex flex-col"
@@ -15,12 +21,13 @@ export default function TableWidget({ title, columns, rows }: TableWidgetProps) 
         border: '1px solid var(--border-subtle)'
       }}
     >
-      <h3 
-        className="text-sm font-medium mb-3"
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {title}
-      </h3>
+      <WidgetHeader 
+        title={title}
+        updatedAt={updatedAt}
+        onDelete={onDelete}
+        isDeleting={isDeleting}
+        readOnly={readOnly}
+      />
       <div className="overflow-auto flex-1">
         <table className="w-full text-sm">
           <thead>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { RotateCcw, Send, AlertCircle, Terminal, FileEdit, ChevronDown, Check, Save, History, X, Trash2, Edit2 } from 'lucide-react';
+import { RotateCcw, Send, AlertCircle, Terminal, FileEdit, ChevronDown, Check, Save, History, X, Trash2, Edit2, Copy, ThumbsUp, ThumbsDown, Layout, BarChart3, Table2, FileText, Database } from 'lucide-react';
 import { useAI } from '../lib/ai';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -33,6 +33,8 @@ interface ChatPanelProps {
     database?: string;
     username?: string;
   };
+  // Callback quando l'AI modifica una dashboard
+  onDashboardModified?: (dashboardId: string, dashboardName: string) => void;
 }
 
 export default function ChatPanel({ 
@@ -41,6 +43,7 @@ export default function ChatPanel({
   minWidth = 320, 
   maxWidth = 600,
   activeDatasource,
+  onDashboardModified,
 }: ChatPanelProps) {
   const { user, isConfigured, isLoading: isLoadingSettings, settings, updateModel } = useAI();
   const [isResizing, setIsResizing] = useState(false);
@@ -66,6 +69,7 @@ export default function ChatPanel({
   const lastSavedHashRef = useRef<string>(''); // Hash dell'ultimo stato salvato
   const unchangedChecksRef = useRef(0); // Contatore di check senza modifiche
   const userHasScrolledUpRef = useRef(false); // Traccia se l'utente ha scrollato verso l'alto
+  const titleGenerationAttempts = useRef<Set<number>>(new Set()); // Traccia a quali message count abbiamo già generato il titolo
 
   // Modelli Claude disponibili
   const models = [
@@ -176,6 +180,7 @@ export default function ChatPanel({
     lastSavedMessageCountRef.current = 0; // Reset contatore messaggi salvati
     lastSavedHashRef.current = ''; // Reset hash
     unchangedChecksRef.current = 0; // Reset contatore check
+    titleGenerationAttempts.current.clear(); // Reset tentativi generazione titolo
     localStorage.removeItem('currentChatId'); // Rimuovi da localStorage
   }, [setMessages]);
 
@@ -261,7 +266,7 @@ export default function ChatPanel({
     }
   }, [currentChatId, handleReset]);
 
-  // Rinomina una chat
+  // Rinomina una chat (manualmente)
   const renameChat = useCallback(async (chatId: string, newTitle: string) => {
     if (!newTitle.trim()) return;
     
@@ -269,7 +274,10 @@ export default function ChatPanel({
       const response = await fetch(`/api/chats/${chatId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle.trim() }),
+        body: JSON.stringify({ 
+          title: newTitle.trim(),
+          is_auto_title: false // Marca come modificato manualmente
+        }),
       });
       
       if (response.ok) {
@@ -284,6 +292,40 @@ export default function ChatPanel({
       console.error('[ChatPanel] Error renaming chat:', error);
     }
   }, []);
+
+  // Genera automaticamente il titolo della chat usando Haiku
+  const generateChatTitle = useCallback(async (chatId: string, messageCount: number) => {
+    // Evita di rigenerare se già fatto per questo message count
+    if (titleGenerationAttempts.current.has(messageCount)) {
+      return;
+    }
+
+    titleGenerationAttempts.current.add(messageCount);
+
+    try {
+      console.log(`[ChatPanel] Generating title for chat ${chatId} at message count ${messageCount}`);
+      const response = await fetch(`/api/chats/${chatId}/generate-title`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const { title } = await response.json();
+        console.log(`[ChatPanel] Generated title: "${title}"`);
+        
+        // Aggiorna la cronologia se è aperta
+        if (chatHistory.length > 0) {
+          setChatHistory(prev => 
+            prev.map(c => c.id === chatId ? { ...c, title } : c)
+          );
+        }
+      } else {
+        const error = await response.json();
+        console.log(`[ChatPanel] Title generation skipped or failed:`, error.message || error.error);
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error generating title:', error);
+    }
+  }, [chatHistory.length]);
 
   // Carica cronologia solo la prima volta che si apre il pannello
   useEffect(() => {
@@ -433,6 +475,47 @@ export default function ChatPanel({
 
     return () => clearInterval(interval);
   }, [messages, user, isConfigured, currentChatId, getMessagesHash, saveChat]);
+
+  // Auto-genera titolo dopo il 1° e 2° messaggio dell'utente
+  useEffect(() => {
+    if (!currentChatId || !user || !isConfigured) return;
+    
+    const messageCount = messages.length;
+    
+    // Genera titolo dopo il primo scambio (2 messaggi: 1 user + 1 assistant)
+    // e dopo il secondo scambio (4 messaggi: 2 user + 2 assistant)
+    if ((messageCount === 2 || messageCount === 4) && !isLoading) {
+      // Aspetta un attimo che il messaggio sia salvato
+      const timer = setTimeout(() => {
+        generateChatTitle(currentChatId, messageCount);
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, currentChatId, user, isConfigured, isLoading, generateChatTitle]);
+
+  // Rileva quando l'AI modifica una dashboard (tool call addDashboardWidget)
+  useEffect(() => {
+    if (!onDashboardModified || messages.length === 0) return;
+    
+    // Controlla l'ultimo messaggio assistant per tool calls
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role !== 'assistant') return;
+    
+    const parts = lastMessage.parts || [];
+    
+    // Cerca tool results di tipo addDashboardWidget
+    for (const part of parts) {
+      if (part.type === 'tool-addDashboardWidget' && part.state === 'output-available') {
+        const output = part.output as any;
+        if (output?.success && output?.dashboardId && output?.dashboardName) {
+          console.log('[ChatPanel] Dashboard modified detected:', output.dashboardName);
+          onDashboardModified(output.dashboardId, output.dashboardName);
+          break; // Notifica solo una volta per messaggio
+        }
+      }
+    }
+  }, [messages, onDashboardModified]);
 
   // Auto-resize on mount and when value changes
   useEffect(() => {
@@ -1044,23 +1127,121 @@ export default function ChatPanel({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function MessageBubble({ message }: { message: any }) {
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+  const [thumbsUpActive, setThumbsUpActive] = useState(false);
+  const [thumbsDownActive, setThumbsDownActive] = useState(false);
+
+  // Estrae il contenuto testuale del messaggio per la copia
+  const getMessageText = () => {
+    if (isUser) {
+      return message.content || message.parts?.[0]?.text || '';
+    }
+    // Per messaggi AI, estrai tutto il testo dai parts
+    const parts = message.parts || [];
+    return parts
+      .filter((part: any) => part.type === 'text' && part.text)
+      .map((part: any) => part.text)
+      .join('\n\n');
+  };
+
+  // Funzione per copiare il testo
+  const handleCopy = async () => {
+    const text = getMessageText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Gestione thumb up/down (per ora solo visual feedback)
+  const handleThumbsUp = () => {
+    setThumbsUpActive(!thumbsUpActive);
+    setThumbsDownActive(false);
+  };
+
+  const handleThumbsDown = () => {
+    setThumbsDownActive(!thumbsDownActive);
+    setThumbsUpActive(false);
+  };
   
   // Per messaggi utente, rendering semplice
   if (isUser) {
     const content = message.content || (message.parts?.[0]?.text);
     return (
       <div className="message-animate flex justify-end">
-        <div 
-          className="max-w-[85%] rounded-xl px-3 py-2 text-xs"
-          style={{ 
-            background: 'var(--chat-user-bg)',
-            color: 'var(--text-primary)'
-          }}
-        >
-          <div className="chat-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content}
-            </ReactMarkdown>
+        <div className="flex flex-col items-end gap-1">
+          <div 
+            className="max-w-[85%] rounded-xl px-3 py-2 text-xs"
+            style={{ 
+              background: 'var(--chat-user-bg)',
+              color: 'var(--text-primary)'
+            }}
+          >
+            <div className="chat-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          </div>
+          
+          {/* Action buttons */}
+          <div className="flex items-center gap-1 px-1">
+            <button
+              onClick={handleCopy}
+              className="p-1 rounded transition-colors"
+              style={{ 
+                color: copied ? 'var(--accent-primary)' : 'var(--text-muted)',
+                opacity: 0.7
+              }}
+              onMouseEnter={(e) => {
+                if (!copied) e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+              }}
+              title={copied ? 'Copied!' : 'Copy message'}
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+            
+            <button
+              onClick={handleThumbsUp}
+              className="p-1 rounded transition-colors"
+              style={{ 
+                color: thumbsUpActive ? 'var(--accent-primary)' : 'var(--text-muted)',
+                opacity: 0.7
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+              }}
+              title="Good response"
+            >
+              <ThumbsUp size={12} />
+            </button>
+            
+            <button
+              onClick={handleThumbsDown}
+              className="p-1 rounded transition-colors"
+              style={{ 
+                color: thumbsDownActive ? '#ef4444' : 'var(--text-muted)',
+                opacity: 0.7
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+              }}
+              title="Bad response"
+            >
+              <ThumbsDown size={12} />
+            </button>
           </div>
         </div>
       </div>
@@ -1072,37 +1253,96 @@ function MessageBubble({ message }: { message: any }) {
   
   return (
     <div className="message-animate flex justify-start">
-      <div 
-        className="max-w-[85%] rounded-xl px-3 py-2 text-xs space-y-2"
-        style={{ 
-          background: 'var(--bg-tertiary)',
-          color: 'var(--text-primary)'
-        }}
-      >
-        {parts.map((part: any, index: number) => {
-          // Ignora step-start (è solo un marker)
-          if (part.type === 'step-start') {
+      <div className="flex flex-col items-start gap-1">
+        <div 
+          className="max-w-[85%] rounded-xl px-3 py-2 text-xs space-y-2"
+          style={{ 
+            background: 'var(--bg-tertiary)',
+            color: 'var(--text-primary)'
+          }}
+        >
+          {parts.map((part: any, index: number) => {
+            // Ignora step-start (è solo un marker)
+            if (part.type === 'step-start') {
+              return null;
+            }
+
+            // Renderizza testo normale
+            if (part.type === 'text' && part.text) {
+              return (
+                <div key={index} className="chat-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {part.text}
+                  </ReactMarkdown>
+                </div>
+              );
+            }
+
+            // Renderizza tool calls
+            if (part.type?.startsWith('tool-')) {
+              return <ToolStepDisplay key={index} part={part} />;
+            }
+
             return null;
-          }
-
-          // Renderizza testo normale
-          if (part.type === 'text' && part.text) {
-            return (
-              <div key={index} className="chat-markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {part.text}
-                </ReactMarkdown>
-              </div>
-            );
-          }
-
-          // Renderizza tool calls
-          if (part.type?.startsWith('tool-')) {
-            return <ToolStepDisplay key={index} part={part} />;
-          }
-
-          return null;
-        })}
+          })}
+        </div>
+        
+        {/* Action buttons */}
+        <div className="flex items-center gap-1 px-1">
+          <button
+            onClick={handleCopy}
+            className="p-1 rounded transition-colors"
+            style={{ 
+              color: copied ? 'var(--accent-primary)' : 'var(--text-muted)',
+              opacity: 0.7
+            }}
+            onMouseEnter={(e) => {
+              if (!copied) e.currentTarget.style.opacity = '1';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.7';
+            }}
+            title={copied ? 'Copied!' : 'Copy message'}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+          
+          <button
+            onClick={handleThumbsUp}
+            className="p-1 rounded transition-colors"
+            style={{ 
+              color: thumbsUpActive ? 'var(--accent-primary)' : 'var(--text-muted)',
+              opacity: 0.7
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.7';
+            }}
+            title="Good response"
+          >
+            <ThumbsUp size={12} />
+          </button>
+          
+          <button
+            onClick={handleThumbsDown}
+            className="p-1 rounded transition-colors"
+            style={{ 
+              color: thumbsDownActive ? '#ef4444' : 'var(--text-muted)',
+              opacity: 0.7
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.7';
+            }}
+            title="Bad response"
+          >
+            <ThumbsDown size={12} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1118,14 +1358,18 @@ function ToolStepDisplay({ part }: { part: any }) {
     'getDataSources': 'Get Data Sources',
     'bash': 'Bash Command',
     'editFile': 'Edit Documentation',
+    'addDashboardWidget': 'Add Dashboard Widget',
+    'getDashboards': 'Get Dashboards',
   };
   const label = toolLabels[toolName] || toolName;
   
   // Icone per i diversi tool
   const toolIcons: Record<string, any> = {
-    'getDataSources': FileEdit,
+    'getDataSources': Database,
     'bash': Terminal,
     'editFile': FileEdit,
+    'addDashboardWidget': Layout,
+    'getDashboards': Layout,
   };
   const Icon = toolIcons[toolName] || Terminal;
   
@@ -1220,67 +1464,183 @@ function ToolStepDisplay({ part }: { part: any }) {
               )}
               
               {/* Errori editFile */}
-              {!part.output.success && part.output.error && (
-                <div>
-                  <div style={{ color: '#ef4444', fontWeight: 'bold' }}>
-                    Error: {part.output.error.message}
-                  </div>
-                  {part.output.error.hint && (
-                    <div className="mt-1" style={{ color: 'var(--text-muted)' }}>
-                      💡 {part.output.error.hint}
+              {(() => {
+                const output = part.output as any;
+                return !output?.success && output?.error && (
+                  <div>
+                    <div style={{ color: '#ef4444', fontWeight: 'bold' }}>
+                      Error: {output.error.message}
                     </div>
-                  )}
-                  {part.output.error.filePreview && (
-                    <pre 
-                      className="mt-2 p-2 rounded text-xs"
-                      style={{ 
-                        background: 'var(--bg-tertiary)',
-                        maxHeight: '150px',
-                        overflow: 'auto'
-                      }}
-                    >
-                      {part.output.error.filePreview}
-                    </pre>
-                  )}
-                </div>
-              )}
+                    {output.error.hint && (
+                      <div className="mt-1" style={{ color: 'var(--text-muted)' }}>
+                        💡 {output.error.hint}
+                      </div>
+                    )}
+                    {output.error.filePreview && (
+                      <pre 
+                        className="mt-2 p-2 rounded text-xs"
+                        style={{ 
+                          background: 'var(--bg-tertiary)',
+                          maxHeight: '150px',
+                          overflow: 'auto'
+                        }}
+                      >
+                        {output.error.filePreview}
+                      </pre>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
 
           {/* Bash - mostra stdout/stderr */}
-          {toolName === 'bash' && (
-            <>
-              {part.output.stdout && (
-                <pre 
-                  className="whitespace-pre-wrap text-xs"
-                  style={{ color: 'var(--text-primary)' }}
-                >
-                  {part.output.stdout}
-                </pre>
-              )}
-              
-              {!part.output.success && part.output.stderr && (
-                <div style={{ color: '#ef4444' }}>
-                  Error: {part.output.stderr}
-                </div>
-              )}
-            </>
-          )}
+          {toolName === 'bash' && (() => {
+            const output = part.output as any;
+            return (
+              <>
+                {output?.stdout && (
+                  <pre 
+                    className="whitespace-pre-wrap text-xs"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    {output.stdout}
+                  </pre>
+                )}
+                
+                {!output?.success && output?.stderr && (
+                  <div style={{ color: '#ef4444' }}>
+                    Error: {output.stderr}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           
           {/* Get Data Sources - mostra messaggio */}
-          {toolName === 'getDataSources' && part.output.message && (
-            <div style={{ color: 'var(--text-secondary)' }}>
-              {part.output.message}
-              {part.output.count !== undefined && (
-                <span style={{ fontWeight: 'bold' }}>
-                  {' '}({part.output.count} found)
-                </span>
-              )}
-            </div>
+          {toolName === 'getDataSources' && (() => {
+            const output = part.output as any;
+            return output?.message && (
+              <div style={{ color: 'var(--text-secondary)' }}>
+                {output.message}
+                {output.count !== undefined && (
+                  <span style={{ fontWeight: 'bold' }}>
+                    {' '}({output.count} found)
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Get Dashboards - mostra lista dashboard */}
+          {toolName === 'getDashboards' && (() => {
+            const output = part.output as any;
+            return (
+              <>
+                {output?.message && (
+                  <div 
+                    className="mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {output.message}
+                  </div>
+                )}
+                {output?.dashboards && output.dashboards.length > 0 && (
+                  <div className="space-y-1">
+                    {output.dashboards.slice(0, 5).map((dashboard: any) => (
+                      <div 
+                        key={dashboard.id}
+                        className="flex items-center justify-between text-xs p-2 rounded"
+                        style={{ 
+                          background: 'var(--bg-primary)',
+                          color: 'var(--text-secondary)'
+                        }}
+                      >
+                        <span style={{ fontWeight: '500' }}>{dashboard.name}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                          {dashboard.widgetCount} widget{dashboard.widgetCount !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    ))}
+                    {output.dashboards.length > 5 && (
+                      <div 
+                        className="text-xs"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        ...and {output.dashboards.length - 5} more
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {/* Add Dashboard Widget - mostra info widget aggiunto */}
+          {toolName === 'addDashboardWidget' && (
+            <AddDashboardWidgetDisplay part={part} />
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// Componente per mostrare Add Dashboard Widget output
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function AddDashboardWidgetDisplay({ part }: { part: any }) {
+  const output = part.output as any;
+  const input = part.input as any;
+  
+  // Determina l'icona in base al tipo di widget
+  const widgetType = input?.widgetType;
+  const WidgetIcon = widgetType === 'chart' ? BarChart3 
+    : widgetType === 'table' ? Table2 
+    : widgetType === 'markdown' ? FileText 
+    : widgetType === 'query' ? Database 
+    : Layout;
+
+  return (
+    <>
+      {output?.dashboardName && (
+        <div 
+          className="mb-2 flex items-center gap-2"
+          style={{ color: 'var(--text-primary)' }}
+        >
+          <Layout size={14} style={{ color: 'var(--accent-primary)' }} />
+          <span className="font-medium">
+            Dashboard: <span style={{ color: 'var(--accent-primary)' }}>{output.dashboardName}</span>
+          </span>
+        </div>
+      )}
+      
+      {output?.widgetTitle && (
+        <div 
+          className="mb-2 flex items-center gap-2"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          <WidgetIcon size={14} />
+          <span>
+            Added: <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{output.widgetTitle}</span>
+            {widgetType && (
+              <span style={{ color: 'var(--text-muted)', fontSize: '11px', marginLeft: '6px' }}>
+                ({widgetType})
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+      
+      {output?.message && (
+        <div 
+          className="flex items-start gap-2"
+          style={{ color: '#22c55e' }}
+        >
+          <Check size={14} className="mt-0.5" />
+          <span>{output.message}</span>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import WidgetHeader from './WidgetHeader';
 
 // Importa Plotly dinamicamente per evitare problemi SSR
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
@@ -11,9 +12,13 @@ interface ChartWidgetProps {
     data: Plotly.Data[];
     layout?: Partial<Plotly.Layout>;
   };
+  updatedAt?: string;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+  readOnly?: boolean;
 }
 
-export default function ChartWidget({ title, plotlyConfig }: ChartWidgetProps) {
+export default function ChartWidget({ title, plotlyConfig, updatedAt, onDelete, isDeleting, readOnly = false }: ChartWidgetProps) {
   return (
     <div 
       className="rounded-xl p-4 h-full flex flex-col"
@@ -22,12 +27,13 @@ export default function ChartWidget({ title, plotlyConfig }: ChartWidgetProps) {
         border: '1px solid var(--border-subtle)'
       }}
     >
-      <h3 
-        className="text-sm font-medium mb-3"
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {title}
-      </h3>
+      <WidgetHeader 
+        title={title}
+        updatedAt={updatedAt}
+        onDelete={onDelete}
+        isDeleting={isDeleting}
+        readOnly={readOnly}
+      />
       <div className="flex-1 min-h-0">
         <Plot
           data={plotlyConfig.data}
