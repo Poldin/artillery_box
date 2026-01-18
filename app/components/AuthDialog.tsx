@@ -224,7 +224,7 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
           <div className="auth-brand-content">
             {/* Logo */}
             <div className="auth-logo">
-              <span className="auth-logo-text">artillery_box</span>
+              <span className="auth-logo-text">Vetrinae</span>
             </div>
 
             {/* Tagline */}
@@ -265,7 +265,7 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
             <div className="auth-form-content">
               <h2 className="auth-form-title">Get Started</h2>
               <p className="auth-form-subtitle">
-                Create an account or sign in to unlock the full power of Artillery Box
+                Create an account or sign in to unlock the full power of Vetrinae
               </p>
 
               <div className="auth-welcome-buttons">
@@ -457,7 +457,7 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
 
               <h2 className="auth-form-title">Welcome Back</h2>
               <p className="auth-form-subtitle">
-                Sign in to continue to Artillery Box
+                Sign in to continue to Vetrinae
               </p>
 
               {error && <div className="auth-error">{error}</div>}

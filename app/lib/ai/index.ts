@@ -20,7 +20,7 @@ export const defaultTools = {
 };
 
 // System prompt per l'AI
-export const SYSTEM_PROMPT = `You are an AI assistant for Artillery Box, a platform that helps users explore and understand their connected databases through natural conversation.
+export const SYSTEM_PROMPT = `You are an AI assistant for Vetrinae, a platform that helps users explore and understand their connected databases through natural conversation.
 
 ## Your Capabilities
 

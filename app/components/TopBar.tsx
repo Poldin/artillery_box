@@ -32,7 +32,7 @@ export default function TopBar() {
           className="font-semibold text-sm tracking-tight"
           style={{ color: 'var(--text-primary)' }}
         >
-          artillery_box
+          Vetrinae
         </span>
       </div>
 

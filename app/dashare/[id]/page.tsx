@@ -107,7 +107,7 @@ export default function SharedDashboardPage() {
             className="font-semibold text-sm tracking-tight"
             style={{ color: 'var(--text-primary)' }}
           >
-            artillery_box
+            Vetrinae
           </span>
         </div>
 
@@ -171,7 +171,7 @@ export default function SharedDashboardPage() {
                   e.currentTarget.style.borderColor = 'var(--border-subtle)';
                 }}
               >
-                Go to Artillery Box
+                Go to Vetrinae
                 <ArrowRight size={16} />
               </Link>
             </div>

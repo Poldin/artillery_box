@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "artillery_box",
+  title: "Vetrinae",
   description: "AI-powered data exploration and analysis",
 };
 
