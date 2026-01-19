@@ -46,6 +46,25 @@ CREATE TABLE public.documentation (
   CONSTRAINT documentation_pkey PRIMARY KEY (id),
   CONSTRAINT documentation_datasource_id_fkey FOREIGN KEY (datasource_id) REFERENCES public.data_sources(id)
 );
+CREATE TABLE public.link_partner_customers (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  partner_id uuid,
+  customer_id uuid,
+  metadata jsonb,
+  CONSTRAINT link_partner_customers_pkey PRIMARY KEY (id),
+  CONSTRAINT link_partner_customers_partner_id_fkey FOREIGN KEY (partner_id) REFERENCES public.partners(id),
+  CONSTRAINT link_partner_customers_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.partners (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  name text,
+  user_id uuid,
+  metadata jsonb,
+  CONSTRAINT partners_pkey PRIMARY KEY (id),
+  CONSTRAINT partners_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
 CREATE TABLE public.user_ai_settings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid,

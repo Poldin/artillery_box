@@ -5,9 +5,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 const publicRoutes = [
   '/auth/callback',
   '/auth/reset-password',
+  '/auth/setup-password',
   '/terms',
   '/privacy',
   '/dashare',
+  '/partner',
 ];
 
 // Rotte API che gestiscono la propria autenticazione

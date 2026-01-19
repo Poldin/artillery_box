@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '../lib/supabase/client';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Check, X, Loader2, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Check, X, Loader2, ArrowLeft, Building } from 'lucide-react';
 
-type AuthView = 'welcome' | 'login' | 'register' | 'otp' | 'forgot-password' | 'reset-sent';
+type AuthView = 'login' | 'register' | 'otp';
 
 interface PasswordValidation {
   minLength: boolean;
@@ -14,15 +14,17 @@ interface PasswordValidation {
   hasSpecial: boolean;
 }
 
-interface AuthDialogProps {
+interface PartnerAuthDialogProps {
   isOpen: boolean;
-  onAuthSuccess: () => void;
+  onClose: () => void;
+  initialView?: 'login' | 'register';
 }
 
-export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
-  const [view, setView] = useState<AuthView>('welcome');
+export default function PartnerAuthDialog({ isOpen, onClose, initialView = 'login' }: PartnerAuthDialogProps) {
+  const [view, setView] = useState<AuthView>(initialView);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
@@ -45,23 +47,24 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
   const passwordValidation = validatePassword(password);
   const isPasswordValid = Object.values(passwordValidation).every(Boolean);
 
-  // Reset state when dialog opens
+  // Update view when initialView changes
   useEffect(() => {
     if (isOpen) {
-      setView('welcome');
+      setView(initialView);
       setEmail('');
       setPassword('');
+      setCompanyName('');
       setOtpCode('');
       setAcceptedTerms(false);
       setAcceptedPrivacy(false);
       setError(null);
       setSuccessMessage(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialView]);
 
-  // Handle Registration
+  // Handle Partner Registration
   const handleRegister = async () => {
-    if (!email || !isPasswordValid || !acceptedTerms || !acceptedPrivacy) {
+    if (!email || !companyName || !isPasswordValid || !acceptedTerms || !acceptedPrivacy) {
       setError('Please fill all fields correctly and accept the terms');
       return;
     }
@@ -75,6 +78,10 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: {
+            is_partner: true,
+            company_name: companyName,
+          }
         },
       });
 
@@ -109,7 +116,7 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
     setError(null);
 
     try {
-      const { error: verifyError } = await supabase.auth.verifyOtp({
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: otpCode,
         type: 'email',
@@ -120,8 +127,33 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
         return;
       }
 
-      // Auto-login successful
-      onAuthSuccess();
+      // Create partner record
+      if (data.user) {
+        const response = await fetch('/api/partners/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: companyName,
+            metadata: {
+              email: email,
+              registered_at: new Date().toISOString(),
+            }
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || result.error) {
+          console.error('Failed to create partner record:', result.error);
+          setError('Failed to create partner account. Please contact support.');
+          return;
+        }
+
+        console.log('Partner record created successfully:', result.partner);
+      }
+
+      // Redirect to main app
+      window.location.href = '/';
     } catch (err) {
       setError('Verification failed. Please try again.');
       console.error(err);
@@ -151,38 +183,10 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
         return;
       }
 
-      onAuthSuccess();
+      // Redirect to main app
+      window.location.href = '/';
     } catch (err) {
       setError('Login failed. Please try again.');
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Forgot Password
-  const handleForgotPassword = async () => {
-    if (!email) {
-      setError('Please enter your email address');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/reset-password`,
-      });
-
-      if (resetError) {
-        setError(resetError.message);
-        return;
-      }
-
-      setView('reset-sent');
-    } catch (err) {
-      setError('Failed to send reset email');
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -217,39 +221,40 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="auth-dialog-overlay">
-      <div className="auth-dialog">
-        {/* Left Panel - Branding */}
-        <div className="auth-dialog-brand">
+    <div className="auth-dialog-overlay" onClick={onClose}>
+      <div className="auth-dialog partner-auth-dialog" onClick={(e) => e.stopPropagation()}>
+        {/* Left Panel - Partner Branding */}
+        <div className="auth-dialog-brand partner-brand">
           <div className="auth-brand-content">
             {/* Logo */}
             <div className="auth-logo">
               <span className="auth-logo-text">Vetrinae</span>
+              <span className="partner-badge-large">Partner</span>
             </div>
 
             {/* Tagline */}
             <h1 className="auth-headline">
-              The AI-powered platform for<br />
-              <span className="auth-headline-accent">data analysis & dashboards</span>
+              Grow your business with<br />
+              <span className="auth-headline-accent">AI-powered solutions</span>
             </h1>
 
-            {/* Features */}
+            {/* Partner Features */}
             <ul className="auth-features">
               <li>
                 <Check size={16} className="auth-feature-icon" />
-                Connect any database in seconds
+                Competitive partner margins
               </li>
               <li>
                 <Check size={16} className="auth-feature-icon" />
-                Query data with natural language
+                Dedicated support team
               </li>
               <li>
                 <Check size={16} className="auth-feature-icon" />
-                Create interactive dashboards
+                White-label options
               </li>
               <li>
                 <Check size={16} className="auth-feature-icon" />
-                AI-assisted data exploration
+                Revenue dashboard & analytics
               </li>
             </ul>
           </div>
@@ -260,50 +265,12 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
 
         {/* Right Panel - Auth Forms */}
         <div className="auth-dialog-form">
-          {/* Welcome View */}
-          {view === 'welcome' && (
+          {/* Login View */}
+          {view === 'login' && (
             <div className="auth-form-content">
-              <h2 className="auth-form-title">Get Started</h2>
+              <h2 className="auth-form-title">Partner Sign In</h2>
               <p className="auth-form-subtitle">
-                Create an account or sign in to unlock the full power of Vetrinae
-              </p>
-
-              <div className="auth-welcome-buttons">
-                <button
-                  onClick={() => setView('login')}
-                  className="auth-btn-primary"
-                >
-                  Sign In
-                  <ArrowRight size={18} />
-                </button>
-
-                <a 
-                  href="/partner" 
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="auth-btn-partner"
-                >
-                  Partner Portal
-                  <ArrowRight size={16} />
-                </a>
-              </div>
-            </div>
-          )}
-
-          {/* Register View */}
-          {view === 'register' && (
-            <div className="auth-form-content">
-              <button
-                onClick={() => setView('welcome')}
-                className="auth-back-btn"
-              >
-                <ArrowLeft size={16} />
-                Back
-              </button>
-
-              <h2 className="auth-form-title">Create Account</h2>
-              <p className="auth-form-subtitle">
-                Start analyzing your data in minutes
+                Access your partner dashboard
               </p>
 
               {error && <div className="auth-error">{error}</div>}
@@ -316,7 +283,84 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
+                    placeholder="partner@company.com"
+                    className="auth-input"
+                  />
+                </div>
+              </div>
+
+              <div className="auth-input-group">
+                <label className="auth-label">Password</label>
+                <div className="auth-input-wrapper">
+                  <Lock size={18} className="auth-input-icon" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="auth-input"
+                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="auth-input-toggle"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={handleLogin}
+                disabled={isLoading || !email || !password}
+                className="auth-btn-primary auth-btn-full"
+              >
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Sign In'}
+              </button>
+
+              <p className="auth-switch-text">
+                Not a partner yet?{' '}
+                <button onClick={() => setView('register')} className="auth-link-btn">
+                  Apply now
+                </button>
+              </p>
+            </div>
+          )}
+
+          {/* Register View */}
+          {view === 'register' && (
+            <div className="auth-form-content">
+              <h2 className="auth-form-title">Become a Partner</h2>
+              <p className="auth-form-subtitle">
+                Join our partner ecosystem
+              </p>
+
+              {error && <div className="auth-error">{error}</div>}
+
+              <div className="auth-input-group">
+                <label className="auth-label">Company Name</label>
+                <div className="auth-input-wrapper">
+                  <Building size={18} className="auth-input-icon" />
+                  <input
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Your Company Ltd."
+                    className="auth-input"
+                  />
+                </div>
+              </div>
+
+              <div className="auth-input-group">
+                <label className="auth-label">Email</label>
+                <div className="auth-input-wrapper">
+                  <Mail size={18} className="auth-input-icon" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="partner@company.com"
                     className="auth-input"
                   />
                 </div>
@@ -383,14 +427,14 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
 
               <button
                 onClick={handleRegister}
-                disabled={isLoading || !email || !isPasswordValid || !acceptedTerms || !acceptedPrivacy}
+                disabled={isLoading || !email || !companyName || !isPasswordValid || !acceptedTerms || !acceptedPrivacy}
                 className="auth-btn-primary auth-btn-full"
               >
-                {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Create Account'}
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Create Partner Account'}
               </button>
 
               <p className="auth-switch-text">
-                Already have an account?{' '}
+                Already a partner?{' '}
                 <button onClick={() => setView('login')} className="auth-link-btn">
                   Sign in
                 </button>
@@ -401,10 +445,7 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
           {/* OTP Verification View */}
           {view === 'otp' && (
             <div className="auth-form-content">
-              <button
-                onClick={() => setView('register')}
-                className="auth-back-btn"
-              >
+              <button onClick={() => setView('register')} className="auth-back-btn">
                 <ArrowLeft size={16} />
                 Back
               </button>
@@ -444,141 +485,6 @@ export default function AuthDialog({ isOpen, onAuthSuccess }: AuthDialogProps) {
                   Resend
                 </button>
               </p>
-            </div>
-          )}
-
-          {/* Login View */}
-          {view === 'login' && (
-            <div className="auth-form-content">
-              <button
-                onClick={() => setView('welcome')}
-                className="auth-back-btn"
-              >
-                <ArrowLeft size={16} />
-                Back
-              </button>
-
-              <h2 className="auth-form-title">Welcome Back</h2>
-              <p className="auth-form-subtitle">
-                Sign in to continue to Vetrinae
-              </p>
-
-              {error && <div className="auth-error">{error}</div>}
-
-              <div className="auth-input-group">
-                <label className="auth-label">Email</label>
-                <div className="auth-input-wrapper">
-                  <Mail size={18} className="auth-input-icon" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="auth-input"
-                  />
-                </div>
-              </div>
-
-              <div className="auth-input-group">
-                <label className="auth-label">Password</label>
-                <div className="auth-input-wrapper">
-                  <Lock size={18} className="auth-input-icon" />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="auth-input"
-                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="auth-input-toggle"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setView('forgot-password')}
-                className="auth-forgot-btn"
-              >
-                Forgot password?
-              </button>
-
-              <button
-                onClick={handleLogin}
-                disabled={isLoading || !email || !password}
-                className="auth-btn-primary auth-btn-full"
-              >
-                {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Sign In'}
-              </button>
-            </div>
-          )}
-
-          {/* Forgot Password View */}
-          {view === 'forgot-password' && (
-            <div className="auth-form-content">
-              <button
-                onClick={() => setView('login')}
-                className="auth-back-btn"
-              >
-                <ArrowLeft size={16} />
-                Back
-              </button>
-
-              <h2 className="auth-form-title">Reset Password</h2>
-              <p className="auth-form-subtitle">
-                Enter your email and we&apos;ll send you a reset link
-              </p>
-
-              {error && <div className="auth-error">{error}</div>}
-
-              <div className="auth-input-group">
-                <label className="auth-label">Email</label>
-                <div className="auth-input-wrapper">
-                  <Mail size={18} className="auth-input-icon" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="auth-input"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={handleForgotPassword}
-                disabled={isLoading || !email}
-                className="auth-btn-primary auth-btn-full"
-              >
-                {isLoading ? <Loader2 size={18} className="animate-spin" /> : 'Send Reset Link'}
-              </button>
-            </div>
-          )}
-
-          {/* Reset Sent View */}
-          {view === 'reset-sent' && (
-            <div className="auth-form-content auth-form-center">
-              <div className="auth-success-icon">
-                <Mail size={32} />
-              </div>
-
-              <h2 className="auth-form-title">Check Your Email</h2>
-              <p className="auth-form-subtitle">
-                We sent a password reset link to<br />
-                <strong>{email}</strong>
-              </p>
-
-              <button
-                onClick={() => setView('login')}
-                className="auth-btn-secondary"
-              >
-                Back to Sign In
-              </button>
             </div>
           )}
         </div>

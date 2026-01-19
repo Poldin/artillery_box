@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams, origin, hash } = new URL(request.url);
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/';
 
@@ -30,9 +30,18 @@ export async function GET(request: Request) {
       }
     );
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { error, data } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!error) {
+    if (!error && data.user) {
+      // Check if this is a password recovery for an invited customer
+      const isInvitedCustomer = data.user.user_metadata?.invitation_pending === true;
+      const customerName = data.user.user_metadata?.name || '';
+      
+      if (isInvitedCustomer) {
+        // Redirect to setup password page
+        return NextResponse.redirect(`${origin}/auth/setup-password?name=${encodeURIComponent(customerName)}`);
+      }
+      
       return NextResponse.redirect(`${origin}${next}`);
     }
   }

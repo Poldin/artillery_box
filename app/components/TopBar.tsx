@@ -3,12 +3,14 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Database, Settings, LogOut, LayoutDashboard, User } from 'lucide-react';
+import { Database, Settings, LogOut, LayoutDashboard, User, Handshake } from 'lucide-react';
 import { useAuth } from '../lib/auth/AuthProvider';
+import { usePartnerStatus } from '../lib/auth/usePartnerStatus';
 
 export default function TopBar() {
   const pathname = usePathname();
   const { user, isAuthenticated, signOut, isLoading } = useAuth();
+  const { isPartner } = usePartnerStatus();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Get user initials
@@ -28,12 +30,13 @@ export default function TopBar() {
     >
       {/* Left section - Brand */}
       <div className="flex items-center gap-3">
-        <span 
+        <Link 
+          href="/"
           className="font-semibold text-sm tracking-tight"
           style={{ color: 'var(--text-primary)' }}
         >
           Vetrinae
-        </span>
+        </Link>
       </div>
 
       {/* Center section - Actions */}
@@ -61,6 +64,20 @@ export default function TopBar() {
           <Database size={16} />
           data sources
         </Link>
+
+        {isPartner && (
+          <Link 
+            href="/partner-dashboard"
+            className="btn-ghost flex items-center gap-2 text-sm"
+            style={{
+              color: pathname === '/partner-dashboard' ? 'var(--accent-primary)' : undefined,
+              background: pathname === '/partner-dashboard' ? 'var(--bg-hover)' : undefined
+            }}
+          >
+            <Handshake size={16} />
+            partner
+          </Link>
+        )}
 
         <Link 
           href="/settings"

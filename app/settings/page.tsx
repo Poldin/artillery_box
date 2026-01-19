@@ -592,6 +592,12 @@ function AIConnectionSection() {
             </>
           )}
         </div>
+        <p 
+          className="text-xs mt-2"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          Your data is never used to train AI models and is completely secure.
+        </p>
       </div>
     </div>
   );
