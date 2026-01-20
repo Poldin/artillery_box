@@ -9,8 +9,51 @@ import { createGetDashboardsTool } from '@/app/lib/ai/tools/get-dashboards';
 import { createServerSupabaseClient, createServiceClient } from '@/app/lib/supabase';
 import { decryptApiKey } from '@/app/lib/crypto';
 
-// Allow streaming responses up to 60 seconds
-export const maxDuration = 60;
+// Allow streaming responses up to 5 minutes for complex multi-tool operations
+export const maxDuration = 300;
+
+/**
+ * Sanitizza i messaggi UI rimuovendo tool_use incompleti (senza tool_result).
+ * Questo previene l'errore: "tool_use ids were found without tool_result blocks"
+ * che si verifica quando l'utente interrompe lo stream mentre l'AI sta chiamando un tool.
+ */
+function sanitizeMessages(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message) => {
+    // Solo i messaggi assistant possono avere tool calls
+    if (message.role !== 'assistant' || !message.parts) {
+      return message;
+    }
+
+    // Filtra i parts per rimuovere tool calls incompleti
+    const sanitizedParts = message.parts.filter((part: any) => {
+      // Se è un tool call, verifica che abbia un output
+      if (part.type?.startsWith('tool-')) {
+        // Mantieni solo se ha output (state === 'output-available' o 'result')
+        const hasOutput = part.state === 'output-available' || 
+                          part.state === 'result' ||
+                          part.output !== undefined;
+        
+        if (!hasOutput) {
+          console.log(`[API/chat] Removing incomplete tool call: ${part.type}`);
+        }
+        return hasOutput;
+      }
+      
+      // Mantieni tutti gli altri tipi di parts
+      return true;
+    });
+
+    // Se abbiamo rimosso dei parts, crea un nuovo messaggio
+    if (sanitizedParts.length !== message.parts.length) {
+      return {
+        ...message,
+        parts: sanitizedParts,
+      };
+    }
+
+    return message;
+  });
+}
 
 export async function POST(req: Request) {
   try {
@@ -104,8 +147,11 @@ export async function POST(req: Request) {
       addDashboardWidget: createAddDashboardWidgetTool({ userId: user.id }),
     };
 
+    // Sanitize messages to remove incomplete tool calls (e.g., when user stops mid-stream)
+    const sanitizedMessages = sanitizeMessages(messages as UIMessage[]);
+    
     // Convert UI messages to model messages
-    const modelMessages = await convertToModelMessages(messages as UIMessage[]);
+    const modelMessages = await convertToModelMessages(sanitizedMessages);
 
     // Stream the response
     const result = streamText({
@@ -113,7 +159,7 @@ export async function POST(req: Request) {
       system: SYSTEM_PROMPT,
       messages: modelMessages,
       tools,
-      stopWhen: stepCountIs(20), // Allow up to 20 steps for multi-step tool calls
+      stopWhen: stepCountIs(50), // Allow up to 50 steps for complex multi-tool operations
       onFinish: ({ text, toolCalls, toolResults, finishReason }) => {
         console.log('[API/chat] Stream finished');
         console.log('[API/chat] Tool calls:', JSON.stringify(toolCalls, null, 2));
