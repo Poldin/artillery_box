@@ -359,7 +359,10 @@ export default function DashboardCanvas({
     // Sostituisci ogni placeholder
     const matches = templateStr.match(placeholderRegex);
     if (matches) {
-      for (const match of matches) {
+      // Rimuovi duplicati (lo stesso placeholder può apparire più volte)
+      const uniqueMatches = [...new Set(matches)];
+      
+      for (const match of uniqueMatches) {
         const columnName = match.replace(/\{\{|\}\}/g, '').trim();
         
         if (widgetType === 'markdown') {
@@ -367,13 +370,15 @@ export default function DashboardCanvas({
           const value = data[0]?.[columnName];
           // Sostituisci il placeholder con il valore (può essere stringa, numero, etc)
           const valueStr = value !== null && value !== undefined ? String(value) : '';
-          // Escape dei backslash e quotes per JSON
+          // Escape dei backslash e quotes per JSON (il placeholder è DENTRO una stringa JSON)
           const escapedValue = valueStr.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-          result = result.replace(`"${match}"`, `"${escapedValue}"`);
+          // Per markdown, il placeholder è DENTRO una stringa, non è un valore JSON separato
+          // Quindi sostituiamo {{column}} direttamente, non "{{column}}"
+          result = result.split(match).join(escapedValue);
         } else {
           // Per chart/table: usa array di tutti i valori
           const columnValues = data.map(row => row[columnName]);
-          // Sostituisci con array JSON
+          // Sostituisci "{{column}}" (come valore JSON) con l'array
           result = result.replace(`"${match}"`, JSON.stringify(columnValues));
         }
       }
