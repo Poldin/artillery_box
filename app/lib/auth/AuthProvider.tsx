@@ -22,7 +22,7 @@ interface AuthProviderProps {
 }
 
 // Rotte che non devono mostrare il dialog di autenticazione
-const noAuthDialogRoutes = ['/partner', '/dashare'];
+const noAuthDialogRoutes = ['/partner', '/dashare', '/ita_partners'];
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const pathname = usePathname();

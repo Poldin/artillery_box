@@ -10,6 +10,7 @@ const publicRoutes = [
   '/privacy',
   '/dashare',
   '/partner',
+  '/ita_partners',
 ];
 
 // Rotte API che gestiscono la propria autenticazione

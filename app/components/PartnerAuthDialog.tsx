@@ -265,6 +265,14 @@ export default function PartnerAuthDialog({ isOpen, onClose, initialView = 'logi
 
         {/* Right Panel - Auth Forms */}
         <div className="auth-dialog-form">
+          {/* Mobile Close Button */}
+          <button 
+            onClick={onClose}
+            className="auth-dialog-close-mobile"
+            aria-label="Close"
+          >
+            <X size={24} />
+          </button>
           {/* Login View */}
           {view === 'login' && (
             <div className="auth-form-content">

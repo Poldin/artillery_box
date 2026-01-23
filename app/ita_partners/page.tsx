@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowRight, Users, TrendingUp, Sparkles, BarChart3, MessageSquare, Database } from 'lucide-react';
+import { ArrowRight, Users, TrendingUp, Zap, BarChart3, Palette, Globe, Rocket, CheckCircle } from 'lucide-react';
 import PartnerAuthDialog from '../components/PartnerAuthDialog';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
-export default function PartnerPortal() {
+export default function ItaPartnersPage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
@@ -18,12 +18,10 @@ export default function PartnerPortal() {
 
   // Fix scroll for partner page
   useEffect(() => {
-    // Allow scroll on this page
     document.body.style.overflow = 'auto';
     document.documentElement.style.overflow = 'auto';
     
     return () => {
-      // Restore original overflow when leaving the page
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
     };
@@ -36,13 +34,13 @@ export default function PartnerPortal() {
         <div className="partner-header-content">
           <div className="partner-logo">
             <span className="partner-logo-text">Vetrinae</span>
-            <span className="partner-logo-badge">Partner Portal</span>
+            <span className="partner-logo-badge">Per Agenzie</span>
           </div>
           <button 
             onClick={() => openAuth('login')}
             className="partner-login-btn"
           >
-            Partner Login
+            Accedi
           </button>
         </div>
       </header>
@@ -51,26 +49,26 @@ export default function PartnerPortal() {
       <section className="partner-hero">
         <div className="partner-hero-content">
           <h1 className="partner-hero-title">
-            Unlock Revenue Opportunities<br />
-            <span className="partner-hero-accent">As a Vetrinae Partner</span>
+            Offri ai Tuoi Clienti<br />
+            <span className="partner-hero-accent">Analytics Potenziati dall&apos;AI</span>
           </h1>
           <p className="partner-hero-subtitle">
-            Join our partner ecosystem and empower your clients with cutting-edge AI-powered data analytics. 
-            Earn competitive margins while delivering exceptional value.
+            Sei un&apos;agenzia web o di marketing? Aggiungi Vetrinae al tuo portfolio di servizi. 
+            I tuoi clienti potranno interrogare i loro dati in linguaggio naturale e ottenere insight immediati.
           </p>
           <div className="partner-hero-cta">
             <button 
               onClick={() => openAuth('register')}
               className="partner-btn-primary"
             >
-              Become a Partner
+              Diventa Partner
               <ArrowRight size={20} />
             </button>
             <button 
               onClick={() => openAuth('login')}
               className="partner-btn-secondary"
             >
-              Partner Sign In
+              Hai già un account?
             </button>
           </div>
 
@@ -79,11 +77,11 @@ export default function PartnerPortal() {
             <Plot
               data={[
                 {
-                  x: ['Q1 2024', 'Q2 2024', 'Q3 2024', 'Q4 2024', 'Q1 2025', 'Q2 2025'],
-                  y: [12, 28, 47, 85, 142, 218],
+                  x: ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu'],
+                  y: [8, 15, 28, 42, 67, 95],
                   type: 'scatter',
                   mode: 'lines',
-                  name: 'Active Partners',
+                  name: 'Agenzie Partner',
                   fill: 'tozeroy',
                   fillcolor: 'rgba(59, 130, 246, 0.2)',
                   line: {
@@ -91,7 +89,7 @@ export default function PartnerPortal() {
                     width: 3,
                     shape: 'spline'
                   },
-                  hovertemplate: '<b>%{x}</b><br>Partners: %{y}<extra></extra>',
+                  hovertemplate: '<b>%{x}</b><br>Agenzie: %{y}<extra></extra>',
                 }
               ]}
               layout={{
@@ -103,7 +101,7 @@ export default function PartnerPortal() {
                 font: { color: '#a1a1a1', size: 11 },
                 annotations: [
                   {
-                    text: 'Partner Network Growth',
+                    text: 'Crescita Rete Partner Italia',
                     xref: 'paper',
                     yref: 'paper',
                     x: 0,
@@ -121,7 +119,7 @@ export default function PartnerPortal() {
                 yaxis: {
                   gridcolor: '#252525',
                   title: { 
-                    text: 'Active Partners',
+                    text: 'Agenzie Attive',
                     font: { color: '#e5e5e5' }
                   }
                 },
@@ -138,49 +136,48 @@ export default function PartnerPortal() {
         </div>
       </section>
 
-      {/* Partner-Only Distribution Model */}
+      {/* Perché Vetrinae per le Agenzie */}
       <section className="partner-section">
         <div className="partner-section-content">
           <div className="partner-section-icon">
-            <Users size={40} />
+            <Rocket size={40} />
           </div>
           <h2 className="partner-section-title">
-            We Only Sell Through Partners
+            Perché le Agenzie Scelgono Vetrinae
           </h2>
           <p className="partner-section-subtitle">
-            Vetrinae operates exclusively through our partner network. We believe in empowering 
-            businesses like yours to deliver AI-powered solutions to your clients, while we focus 
-            on building the best technology.
+            I tuoi clienti hanno dati ovunque: CRM, e-commerce, analytics, fogli di calcolo. 
+            Con Vetrinae possono finalmente capirli, senza competenze tecniche. Tu offri valore, loro ottengono risultati.
           </p>
           
           <div className="partner-features-grid">
             <div className="partner-feature-card">
               <div className="partner-feature-icon">
-                <Database size={24} />
+                <Palette size={24} />
               </div>
-              <h3 className="partner-feature-title">White-Label Ready</h3>
+              <h3 className="partner-feature-title">White-Label Completo</h3>
               <p className="partner-feature-desc">
-                Deliver Vetrinae under your brand with customizable interfaces and branding options.
+                Personalizza l&apos;interfaccia con il tuo brand. I tuoi clienti vedranno solo il tuo logo e i tuoi colori.
               </p>
             </div>
             
             <div className="partner-feature-card">
               <div className="partner-feature-icon">
-                <MessageSquare size={24} />
+                <Globe size={24} />
               </div>
-              <h3 className="partner-feature-title">Dedicated Support</h3>
+              <h3 className="partner-feature-title">100% in Italiano</h3>
               <p className="partner-feature-desc">
-                Get priority technical support and partner success management to help you win.
+                Interfaccia e AI che parlano italiano. I tuoi clienti possono fare domande come &quot;Quali prodotti hanno venduto di più a Milano?&quot;
               </p>
             </div>
             
             <div className="partner-feature-card">
               <div className="partner-feature-icon">
-                <BarChart3 size={24} />
+                <Zap size={24} />
               </div>
-              <h3 className="partner-feature-title">Revenue Dashboard</h3>
+              <h3 className="partner-feature-title">Setup in 5 Minuti</h3>
               <p className="partner-feature-desc">
-                Track your client portfolio, usage metrics, and revenue in real-time.
+                Collega qualsiasi database, Google Sheets o CSV. Nessuna configurazione complessa, nessun codice da scrivere.
               </p>
             </div>
           </div>
@@ -188,20 +185,20 @@ export default function PartnerPortal() {
           {/* AI Conversation Example */}
           <div className="ai-conversation-demo">
             <div className="ai-message ai-message-user">
-              Show me sales trends for Q4
+              Mostrami le vendite per regione dell&apos;ultimo trimestre
             </div>
             <div className="ai-message ai-message-assistant">
               <div className="ai-response-text" style={{ marginBottom: '16px' }}>
-                Here&apos;s your Q4 sales analysis. Sales increased 23% compared to Q3, with strongest performance in December:
+                Ecco l&apos;analisi delle vendite per regione nel Q4. La Lombardia guida con +34% rispetto al trimestre precedente:
               </div>
               <Plot
                 data={[
                   {
-                    x: ['Oct', 'Nov', 'Dec'],
-                    y: [12500, 14200, 18900],
+                    x: ['Lombardia', 'Lazio', 'Veneto', 'Emilia-R.', 'Piemonte'],
+                    y: [48500, 32100, 28700, 24300, 19800],
                     type: 'bar',
                     marker: {
-                      color: '#3b82f6',
+                      color: ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#c084fc'],
                       line: { width: 0 }
                     },
                     hovertemplate: '<b>%{x}</b><br>€%{y:,.0f}<extra></extra>',
@@ -236,45 +233,92 @@ export default function PartnerPortal() {
         </div>
       </section>
 
-      {/* Solid Partnerships */}
+      {/* Casi d'uso per Agenzie */}
       <section className="partner-section partner-section-alt">
+        <div className="partner-section-content">
+          <div className="partner-section-icon">
+            <BarChart3 size={40} />
+          </div>
+          <h2 className="partner-section-title">
+            Casi d&apos;Uso per i Tuoi Clienti
+          </h2>
+          <p className="partner-section-subtitle">
+            Vetrinae si adatta a qualsiasi settore. Ecco come le agenzie partner lo usano ogni giorno.
+          </p>
+          
+          <div className="partner-features-grid">
+            <div className="partner-feature-card">
+              <div className="partner-feature-icon">
+                <CheckCircle size={24} />
+              </div>
+              <h3 className="partner-feature-title">E-commerce</h3>
+              <p className="partner-feature-desc">
+                &quot;Quali prodotti hanno il margine più alto?&quot; &quot;Mostra i clienti che non comprano da 3 mesi&quot;
+              </p>
+            </div>
+            
+            <div className="partner-feature-card">
+              <div className="partner-feature-icon">
+                <CheckCircle size={24} />
+              </div>
+              <h3 className="partner-feature-title">Ristoranti e Retail</h3>
+              <p className="partner-feature-desc">
+                &quot;Qual è il giorno con più incassi?&quot; &quot;Confronta le vendite di questo mese con l&apos;anno scorso&quot;
+              </p>
+            </div>
+            
+            <div className="partner-feature-card">
+              <div className="partner-feature-icon">
+                <CheckCircle size={24} />
+              </div>
+              <h3 className="partner-feature-title">B2B e Servizi</h3>
+              <p className="partner-feature-desc">
+                &quot;Lista i clienti con fatturato sopra 50k&quot; &quot;Quali commerciali hanno chiuso più contratti?&quot;
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section className="partner-section">
         <div className="partner-section-content">
           <div className="partner-section-icon">
             <TrendingUp size={40} />
           </div>
           <h2 className="partner-section-title">
-            We Grow Through Solid Partnerships
+            Un Modello Semplice e Trasparente
           </h2>
           <p className="partner-section-subtitle">
-            We believe in building long-term relationships based on trust and mutual success. 
-            You maintain full control over pricing and client relationships, while we provide the technology and support you need to thrive.
+            Tu decidi il prezzo per i tuoi clienti. Noi ti chiediamo solo una quota fissa per utente. 
+            Il margine è tutto tuo.
           </p>
           
           <div className="partner-pricing-box">
             <p className="partner-pricing-intro">
-              All partners start with our <span className="partner-pricing-highlight">Standard Partnership Plan</span>
+              Tutti i partner iniziano con il <span className="partner-pricing-highlight">Piano Standard</span>
             </p>
             
             <div className="partner-pricing-tiers">
               <div className="partner-pricing-tier">
-                <p className="partner-pricing-label">First Customer</p>
+                <p className="partner-pricing-label">Primo Cliente</p>
                 <p className="partner-pricing-price">
-                  €10.90<span className="partner-pricing-period">/month</span>
+                  €10,90<span className="partner-pricing-period">/mese</span>
                 </p>
               </div>
               
               <div className="partner-pricing-tier">
-                <p className="partner-pricing-label">Subsequent Customers</p>
+                <p className="partner-pricing-label">Clienti Successivi</p>
                 <p className="partner-pricing-price">
-                  €7.90<span className="partner-pricing-period">/month each</span>
+                  €7,90<span className="partner-pricing-period">/mese cad.</span>
                 </p>
               </div>
             </div>
 
             <p className="partner-pricing-note">
-              You set your own retail prices and keep the margin. <br />
+              Sei tu a decidere quanto far pagare ai tuoi clienti. Il margine è tuo al 100%. <br />
               <span className="partner-pricing-disclaimer">
-                VAT excluded · Initial partner evaluation required · Ongoing performance reviews ensure partnership quality
+                IVA esclusa · Richiesta valutazione iniziale · Review periodiche per garantire qualità
               </span>
             </p>
           </div>
@@ -283,15 +327,15 @@ export default function PartnerPortal() {
 
       {/* Footer CTA */}
       <section className="partner-footer-cta">
-        <h2 className="partner-footer-title">Ready to Get Started?</h2>
+        <h2 className="partner-footer-title">Pronto a Iniziare?</h2>
         <p className="partner-footer-subtitle">
-          Join hundreds of partners already growing their business with Vetrinae
+          Unisciti alle agenzie italiane che stanno già offrendo analytics AI ai loro clienti
         </p>
         <button 
           onClick={() => openAuth('register')}
           className="partner-btn-primary partner-btn-large"
         >
-          Apply for Partnership
+          Richiedi Accesso Partner
           <ArrowRight size={24} />
         </button>
       </section>
