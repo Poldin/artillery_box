@@ -100,6 +100,94 @@ export default function ItaPartnersPage() {
             />
           </div>
 
+          {/* Google Slides Presentation */}
+          <div 
+            className="slides-container"
+            style={{ 
+              position: 'relative', 
+              paddingBottom: '59.27%', 
+              height: 0,
+              maxWidth: '900px',
+              margin: '40px auto',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <iframe 
+              src="https://docs.google.com/presentation/d/1AXmbBlbygpMscDduJyrxriz4apw_Pw3Os3Yvvt3s4Zs/embed?start=false&loop=false&delayms=3000" 
+              frameBorder="0" 
+              allowFullScreen
+              style={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: 0, 
+                width: '100%', 
+                height: '100%' 
+              }}
+            />
+          </div>
+          <div 
+            className="slides-actions"
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '16px',
+              flexWrap: 'wrap',
+              marginTop: '-20px',
+              marginBottom: '20px'
+            }}
+          >
+            <a 
+              href="https://docs.google.com/presentation/d/1AXmbBlbygpMscDduJyrxriz4apw_Pw3Os3Yvvt3s4Zs/edit?usp=sharing" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{
+                color: '#a1a1a1',
+                fontSize: '14px',
+                textDecoration: 'none',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: '1px solid #333',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#e5e5e5';
+                e.currentTarget.style.borderColor = '#3b82f6';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#a1a1a1';
+                e.currentTarget.style.borderColor = '#333';
+              }}
+            >
+              Apri in Google Slides
+            </a>
+            <a 
+              href="https://docs.google.com/presentation/d/1AXmbBlbygpMscDduJyrxriz4apw_Pw3Os3Yvvt3s4Zs/export/pdf" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{
+                color: '#a1a1a1',
+                fontSize: '14px',
+                textDecoration: 'none',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: '1px solid #333',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#e5e5e5';
+                e.currentTarget.style.borderColor = '#3b82f6';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#a1a1a1';
+                e.currentTarget.style.borderColor = '#333';
+              }}
+            >
+              Scarica PDF
+            </a>
+          </div>
+
           {/* Partner Growth Analytics */}
           <div className="partner-hero-chart">
             <Plot
