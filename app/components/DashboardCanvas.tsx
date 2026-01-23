@@ -7,6 +7,7 @@ import ChartWidget from './widgets/ChartWidget';
 import TableWidget from './widgets/TableWidget';
 import MarkdownWidget from './widgets/MarkdownWidget';
 import QueryWidget from './widgets/QueryWidget';
+import WidgetHeader from './widgets/WidgetHeader';
 import CreateDashboardModal from './CreateDashboardModal';
 import DashboardChangeNotification from './DashboardChangeNotification';
 import ShareDashboardModal from './ShareDashboardModal';
@@ -124,6 +125,24 @@ export default function DashboardCanvas({
     const words = text.split(' ');
     if (words.length <= 10) return text;
     return words.slice(0, 10).join(' ') + '...';
+  };
+
+  // Controlla se un widget dinamico ha dati popolati
+  const isDynamicWidgetPopulated = (widget: Widget): boolean => {
+    if (!widget.isDynamic) return true; // Widget statici sono sempre "popolati"
+    
+    switch (widget.type) {
+      case 'chart':
+        return !!(widget.data.plotlyConfig?.data && widget.data.plotlyConfig.data.length > 0);
+      case 'table':
+        return !!(widget.data.columns && widget.data.columns.length > 0);
+      case 'markdown':
+        return !!(widget.data.content && widget.data.content !== 'Loading...');
+      case 'query':
+        return !!widget.data.query;
+      default:
+        return true;
+    }
   };
 
   // Fetch dashboards
@@ -845,6 +864,40 @@ export default function DashboardCanvas({
                 // Altezza minima solo per chart (grafici hanno bisogno di spazio)
                 const minHeightClass = widget.type === 'chart' ? 'min-h-[300px]' : '';
                 
+                // Per widget dinamici senza dati, mostra solo header con placeholder
+                const isPopulated = isDynamicWidgetPopulated(widget);
+                
+                if (widget.isDynamic && !isPopulated) {
+                  return (
+                    <div 
+                      key={widget.id}
+                      className="rounded-xl p-4"
+                      style={{ 
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <WidgetHeader 
+                        title={widget.title}
+                        updatedAt={widget.lastFetched || widget.updated_at}
+                        onDelete={() => handleDeleteWidget(widget.id)}
+                        isDeleting={widgetToDelete === widget.id}
+                        isDynamic={widget.isDynamic}
+                        onRefresh={handleRefreshData}
+                        isRefreshing={isRefreshing || isHydrating}
+                        fetchError={widget.fetchError}
+                      />
+                      {/* Placeholder per dati non ancora caricati */}
+                      <div 
+                        className="text-xs py-2"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {isHydrating ? 'Loading data...' : 'Click refresh to load data'}
+                      </div>
+                    </div>
+                  );
+                }
+                
                 return (
                   <div key={widget.id} className={minHeightClass}>
                     {widget.type === 'chart' && (widget.data.plotlyConfig || widget.isDynamic) && (
@@ -855,8 +908,8 @@ export default function DashboardCanvas({
                       onDelete={() => handleDeleteWidget(widget.id)}
                       isDeleting={widgetToDelete === widget.id}
                       isDynamic={widget.isDynamic}
-                      onRefresh={() => handleRefreshWidget(widget.id)}
-                      isRefreshing={isHydrating}
+                      onRefresh={handleRefreshData}
+                      isRefreshing={isRefreshing || isHydrating}
                       fetchError={widget.fetchError}
                     />
                   )}
@@ -869,8 +922,8 @@ export default function DashboardCanvas({
                       onDelete={() => handleDeleteWidget(widget.id)}
                       isDeleting={widgetToDelete === widget.id}
                       isDynamic={widget.isDynamic}
-                      onRefresh={() => handleRefreshWidget(widget.id)}
-                      isRefreshing={isHydrating}
+                      onRefresh={handleRefreshData}
+                      isRefreshing={isRefreshing || isHydrating}
                       fetchError={widget.fetchError}
                     />
                   )}
@@ -885,8 +938,8 @@ export default function DashboardCanvas({
                       dashboardId={selectedDashboard.id}
                       onUpdate={fetchDashboards}
                       isDynamic={widget.isDynamic}
-                      onRefresh={() => handleRefreshWidget(widget.id)}
-                      isRefreshing={isHydrating}
+                      onRefresh={handleRefreshData}
+                      isRefreshing={isRefreshing || isHydrating}
                       fetchError={widget.fetchError}
                     />
                   )}
