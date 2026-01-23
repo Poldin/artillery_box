@@ -101,8 +101,8 @@ export default function Home() {
           dashboardVersion={dashboardVersion}
         />
 
-        {/* JSON Editor Panel */}
-        {isJsonEditorOpen && (
+        {/* JSON Editor Panel - sempre montato, nascosto con CSS */}
+        <div style={{ display: isJsonEditorOpen ? 'flex' : 'none' }}>
           <JSONEditorPanel
             width={jsonEditorWidth}
             onWidthChange={setJsonEditorWidth}
@@ -114,10 +114,10 @@ export default function Home() {
               setDashboardVersion(prev => prev + 1);
             }}
           />
-        )}
+        </div>
 
-        {/* Chat Panel */}
-        {isChatOpen && (
+        {/* Chat Panel - sempre montato, nascosto con CSS */}
+        <div style={{ display: isChatOpen ? 'flex' : 'none' }}>
           <ChatPanel 
             width={chatWidth}
             onWidthChange={setChatWidth}
@@ -125,7 +125,7 @@ export default function Home() {
             maxWidth={maxChatWidth}
             onDashboardModified={handleDashboardModified}
           />
-        )}
+        </div>
       </div>
     </div>
   );
