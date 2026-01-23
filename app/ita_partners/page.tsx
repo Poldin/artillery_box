@@ -136,6 +136,44 @@ export default function ItaPartnersPage() {
         </div>
       </section>
 
+      {/* Video Demo */}
+      <section className="partner-section">
+        <div className="partner-section-content">
+          <h2 className="partner-section-title">
+            Guarda Come Funziona
+          </h2>
+          <p className="partner-section-subtitle">
+            Un breve video per capire come Vetrinae può aiutare i tuoi clienti
+          </p>
+          <div 
+            className="loom-video-container"
+            style={{ 
+              position: 'relative', 
+              paddingBottom: '41.875%', 
+              height: 0,
+              maxWidth: '900px',
+              margin: '0 auto',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <iframe 
+              src="https://www.loom.com/embed/72d2bd4e871942079f2ffc271a8eeb8a" 
+              frameBorder="0" 
+              allowFullScreen
+              style={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: 0, 
+                width: '100%', 
+                height: '100%' 
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
       {/* Perché Vetrinae per le Agenzie */}
       <section className="partner-section">
         <div className="partner-section-content">
