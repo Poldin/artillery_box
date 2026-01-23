@@ -327,51 +327,79 @@ export default function AddDataSourceModal({ isOpen, onClose, onAdd, onEdit, dat
         {/* Content */}
         {step === 'select' ? (
           <div className="p-4 grid grid-cols-2 gap-3 overflow-auto">
-            {databaseOptions.map((option) => (
-              <button
-                key={option.type}
-                onClick={() => handleSelectType(option)}
-                className="flex items-start gap-3 p-4 rounded-xl text-left transition-all"
-                style={{ 
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-subtle)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-hover)';
-                  e.currentTarget.style.borderColor = 'var(--border-default)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-tertiary)';
-                  e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                }}
-              >
-                <div 
-                  className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: 'var(--bg-secondary)', color: option.color }}
+            {databaseOptions.map((option) => {
+              const isAvailable = option.type === 'postgresql';
+              
+              return (
+                <button
+                  key={option.type}
+                  onClick={() => isAvailable && handleSelectType(option)}
+                  disabled={!isAvailable}
+                  className="flex items-start gap-3 p-4 rounded-xl text-left transition-all relative"
+                  style={{ 
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-subtle)',
+                    opacity: isAvailable ? 1 : 0.6,
+                    cursor: isAvailable ? 'pointer' : 'not-allowed',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isAvailable) {
+                      e.currentTarget.style.background = 'var(--bg-hover)';
+                      e.currentTarget.style.borderColor = 'var(--border-default)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--bg-tertiary)';
+                    e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                  }}
                 >
-                  {option.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 
-                    className="font-medium text-sm"
-                    style={{ color: 'var(--text-primary)' }}
+                  <div 
+                    className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ 
+                      background: 'var(--bg-secondary)', 
+                      color: isAvailable ? option.color : 'var(--text-muted)'
+                    }}
                   >
-                    {option.label}
-                  </h3>
-                  <p 
-                    className="text-xs mt-0.5 line-clamp-2"
-                    style={{ color: 'var(--text-tertiary)' }}
-                  >
-                    {option.description}
-                  </p>
-                </div>
-                <ChevronRight 
-                  size={16} 
-                  className="shrink-0 mt-1"
-                  style={{ color: 'var(--text-tertiary)' }}
-                />
-              </button>
-            ))}
+                    {option.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 
+                        className="font-medium text-sm"
+                        style={{ color: isAvailable ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                      >
+                        {option.label}
+                      </h3>
+                      {!isAvailable && (
+                        <span 
+                          className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ 
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-muted)',
+                            fontSize: '10px'
+                          }}
+                        >
+                          coming soon
+                        </span>
+                      )}
+                    </div>
+                    <p 
+                      className="text-xs mt-0.5 line-clamp-2"
+                      style={{ color: 'var(--text-tertiary)' }}
+                    >
+                      {option.description}
+                    </p>
+                  </div>
+                  {isAvailable && (
+                    <ChevronRight 
+                      size={16} 
+                      className="shrink-0 mt-1"
+                      style={{ color: 'var(--text-tertiary)' }}
+                    />
+                  )}
+                </button>
+              );
+            })}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex-1 overflow-auto">
