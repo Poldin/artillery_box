@@ -1,8 +1,5 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { generateEmailTemplate } from '@/app/lib/email-template';
 
 const TO_EMAIL = 'paolo.piccoli@docplanner.it';
@@ -40,16 +37,21 @@ export async function POST(request: Request) {
 
     const subject = 'NUOVO LEAD DA NOA PRO! -> GESTISCILO MANUALMENTE';
 
-    // Convert markdown to safe-ish HTML (skipHtml to avoid raw HTML injection).
-    const markdownHtml = renderToStaticMarkup(
-      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
-        {markdownText}
-      </ReactMarkdown>
-    );
+    const escapeHtml = (input: string) =>
+      input
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 
     const html = generateEmailTemplate({
       title: subject,
-      content: markdownHtml,
+      // Il nome della route include `_md`, ma se ti basta testo semplice
+      // lo inviamo come "preformatted" per preservare a capo/spazi.
+      content: `<pre style="white-space: pre-wrap; word-break: break-word; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 14px; line-height: 21px; color: #374151;">${escapeHtml(
+        markdownText
+      )}</pre>`,
     });
 
     const from =
